@@ -8,6 +8,7 @@ wire-pod can start speaking at the first sentence.
 import asyncio
 import json
 import logging
+import random
 import re
 import time
 import uuid
@@ -20,6 +21,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from . import config
 from .agent import build_agent
+from .mcp_tools import load_mcp_tools
 
 log = logging.getLogger("vector-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -28,6 +30,12 @@ STATE = {"agent": None}
 _turn_lock = asyncio.Lock()  # one robot, one conversation at a time
 _THREAD_FILE = config.DATA_DIR / "thread.json"
 _CUE = re.compile(r"\{\{.*?\}\}")
+_SEARCH_FILLERS = [
+    "{{playAnimationWI||thinking}} Ooh, let me look that up. ",
+    "{{playAnimationWI||thinking}} One sec, checking the internet. ",
+    "{{playAnimationWI||dartingEyes}} Hang on, let me find out. ",
+    "{{playAnimationWI||thinking}} Good one. Let me check. ",
+]
 
 
 def _thread_id() -> str:
@@ -58,8 +66,9 @@ def _user_text(body: dict) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    mcp = await load_mcp_tools()
     async with AsyncSqliteSaver.from_conn_string(str(config.DATA_DIR / "checkpoints.sqlite")) as saver:
-        STATE["agent"] = build_agent(saver)
+        STATE["agent"] = build_agent(saver, mcp)
         log.info("vector-agent ready: model=%s base=%s", config.LLM_MODEL, config.LLM_BASE_URL)
         yield
 
@@ -100,6 +109,14 @@ async def chat_completions(request: Request):
                 async for mode, data in STATE["agent"].astream(text, cfg, stream_mode=["messages", "updates"]):
                     if mode == "messages":
                         msg, meta = data
+                        # Web searches take a few seconds: fill the silence the moment the
+                        # model starts one (unless it already said something itself).
+                        if (isinstance(msg, AIMessageChunk) and not said and msg.tool_call_chunks
+                                and any((tc.get("name") or "").startswith("tavily")
+                                        for tc in msg.tool_call_chunks)):
+                            filler = random.choice(_SEARCH_FILLERS)
+                            said.append(filler)
+                            yield _chunk(cid, model, filler)
                         if isinstance(msg, AIMessageChunk) and msg.content:
                             if not said:
                                 log.info("[%s] first token after %.2fs", thread, time.time() - t0)

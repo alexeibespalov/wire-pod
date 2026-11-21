@@ -24,6 +24,13 @@ LLM_TEMPERATURE = float(_env("LLM_TEMPERATURE", "0.8"))
 WIREPOD_URL = _env("WIREPOD_URL", "http://127.0.0.1:8080").rstrip("/")
 VECTOR_SERIAL = _env("VECTOR_SERIAL", "00609161")
 
+# --- Web search (Tavily remote MCP). Optional: no key -> no web tools.
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "").strip()
+TAVILY_MCP_URL = _env("TAVILY_MCP_URL", "https://mcp.tavily.com/mcp/")
+# Only fast tools are exposed; crawl/map/research are far too slow for a spoken reply.
+TAVILY_TOOLS = [t.strip() for t in _env("TAVILY_TOOLS", "tavily_search,tavily_extract").split(",") if t.strip()]
+TAVILY_DEFAULTS = _env("TAVILY_DEFAULTS", '{"search_depth": "basic", "max_results": 5}')
+
 # --- Agent behaviour
 DATA_DIR = Path(_env("AGENT_DATA_DIR", "/data"))
 THREAD_IDLE_MINUTES = float(_env("THREAD_IDLE_MINUTES", "10"))
