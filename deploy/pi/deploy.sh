@@ -23,13 +23,21 @@ python3 -I "$HERE/intent-data/build_intents.py" \
 RSYNC=(rsync -av --itemize-changes "${DRY[@]}" -e "ssh -i $PI_KEY -o IdentitiesOnly=yes"
        --exclude '__pycache__/' --exclude '.venv/')
 
-# deploy/pi/*  ->  ~/wire-pod/
-"${RSYNC[@]}" \
+# deploy/pi/*  ->  ~/wire-pod/   (--checksum: only real content changes are listed)
+SYNC_OUT="$("${RSYNC[@]}" --checksum \
     --exclude '.env' --exclude '.env.example' --exclude '.gitignore' \
     --exclude 'data/' --exclude 'agent-data/' --exclude 'vector-agent/' \
     --exclude 'deploy.sh' --exclude 'README.md' \
     --exclude 'intent-data/en-US.original.json' \
-    "$HERE/" "$PI_HOST:$PI_DIR/"
+    "$HERE/" "$PI_HOST:$PI_DIR/")"
+echo "$SYNC_OUT"
+
+# wire-pod reads bind-mounted overlays only at startup, and compose doesn't notice
+# content changes in bind mounts -> restart it ourselves when one changed.
+RESTART_WIREPOD=0
+if grep -qE '^<f[^ ]* (intent-data/en-US\.json|persist-sync\.sh)$' <<<"$SYNC_OUT"; then
+    RESTART_WIREPOD=1
+fi
 
 # <repo>/vector-agent/  ->  ~/wire-pod/vector-agent/  (exact mirror)
 "${RSYNC[@]}" --delete "$HERE/../../vector-agent/" "$PI_HOST:$PI_DIR/vector-agent/"
@@ -43,4 +51,5 @@ fi
   chmod 600 .env
   mkdir -p agent-data && sudo -n chown -R 10001 agent-data   # vector-agent runs as uid 10001
   sudo -n docker compose up -d --build --remove-orphans
+  if [ $RESTART_WIREPOD = 1 ]; then echo 'overlay changed: restarting wire-pod'; sudo -n docker compose restart wire-pod; fi
   sudo -n docker compose ps --format '{{.Name}}\t{{.Status}}'"
