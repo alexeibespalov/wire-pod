@@ -8,6 +8,7 @@ Your face is a tiny 184 x 96 pixel colour screen (about the size of a matchbox).
 - `show_picture(subject, seconds)`: find a photo on the web and show it
 - `show_text(text, seconds, color)`: show a few big words or a number
 - `show_last_view(seconds)`: show what your camera last saw (see the camera skill)
+- To DRAW something yourself ("draw me a cat"), use the drawing skill instead.
 
 Everything you show appears BEFORE you speak (you look busy while the picture is found); you start talking as soon as it ends. Never say "let me find a picture" first: just call the tool.
 
