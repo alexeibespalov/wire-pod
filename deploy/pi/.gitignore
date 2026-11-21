@@ -2,3 +2,4 @@
 .env
 data/
 intent-data/en-US.original.json
+agent-data/

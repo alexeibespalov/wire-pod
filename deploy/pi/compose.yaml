@@ -40,22 +40,25 @@ services:
       retries: 5
       start_period: 30s
 
-  # "I have a question" backend. wire-pod Knowledge provider = Custom,
-  # endpoint http://127.0.0.1:8091/v1 (localhost only), dummy key.
-  # Real key + upstream live in ./.env (chmod 600).
-  kg-proxy:
-    image: python:3.12-slim
-    container_name: kg-proxy
+  # Vector's brain: LangGraph ReAct agent (source: <repo>/vector-agent, synced to ./vector-agent).
+  # wire-pod Knowledge provider = Custom, endpoint http://127.0.0.1:8091/v1 (localhost only),
+  # dummy key. Real LLM key + upstream live in ./.env (chmod 600).
+  # State (conversation threads, memories) in ./agent-data.
+  vector-agent:
+    build: ./vector-agent
+    image: vector-agent:local
+    container_name: vector-agent
     network_mode: host
     restart: unless-stopped
     env_file: .env
     environment:
       LISTEN_HOST: 127.0.0.1
       LISTEN_PORT: "8091"
-      PYTHONUNBUFFERED: "1"
+      WIREPOD_URL: http://127.0.0.1:8080
+      VECTOR_SERIAL: "00609161"
+      AGENT_TZ: Europe/London
     volumes:
-      - ./kg-proxy/proxy.py:/app/proxy.py:ro
-    command: ["python", "-I", "/app/proxy.py"]
+      - ./agent-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)"]
       interval: 30s

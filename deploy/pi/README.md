@@ -15,7 +15,7 @@ This fork's source of truth is this repo. The Pi is only a deployment target:
 | Service | What | Network |
 |---|---|---|
 | `wire-pod` | upstream image `ghcr.io/kercre123/wire-pod:main`, with overlays below | host; chipper on **:8443** (Tailscale Funnel owns :443), web UI :8080, connCheck :80 |
-| `kg-proxy` | `kg-proxy/proxy.py`: wire-pod "Custom" LLM provider -> Qwen (forces `enable_thinking:false`) | host, 127.0.0.1:8091 only |
+| `vector-agent` | `<repo>/vector-agent`: LangGraph Functional-API ReAct agent behind wire-pod's "Custom" LLM provider. Persona, tools (motors, built-in behaviours, eyes, battery, memory), persistent threads | host, 127.0.0.1:8091 only; state in `agent-data/` |
 
 Robot: Vector X4J8 (ESN 00609161), WireOS, `192.168.1.150` (router reservation),
 server_config points at `192.168.1.39:8443` (IP mode; the router doesn't relay mDNS).
@@ -34,6 +34,8 @@ server_config points at `192.168.1.39:8443` (IP mode; the router doesn't relay m
 ## Pi-only files
 
 * `~/wire-pod/.env`: see `.env.example` (chmod 600)
+* `~/wire-pod/agent-data/`: agent state: `checkpoints.sqlite` (conversation threads),
+  `memories.json` (long-term facts), `thread.json` (current thread)
 * `~/wire-pod/data/`: wire-pod state: settings, Vector's registration/session cert,
   speech model, SDK cert (`data/anki_vector/`)
 

@@ -20,12 +20,19 @@ DRY=()
 python3 -I "$HERE/intent-data/build_intents.py" \
     "$HERE/../../chipper/intent-data/en-US.json" "$HERE/intent-data/en-US.json"
 
-rsync -av --itemize-changes "${DRY[@]}" \
-    -e "ssh -i $PI_KEY -o IdentitiesOnly=yes" \
+RSYNC=(rsync -av --itemize-changes "${DRY[@]}" -e "ssh -i $PI_KEY -o IdentitiesOnly=yes"
+       --exclude '__pycache__/' --exclude '.venv/')
+
+# deploy/pi/*  ->  ~/wire-pod/
+"${RSYNC[@]}" \
     --exclude '.env' --exclude '.env.example' --exclude '.gitignore' \
-    --exclude 'data/' --exclude 'deploy.sh' --exclude 'README.md' \
-    --exclude 'intent-data/en-US.original.json' --exclude '__pycache__/' \
+    --exclude 'data/' --exclude 'agent-data/' --exclude 'vector-agent/' \
+    --exclude 'deploy.sh' --exclude 'README.md' \
+    --exclude 'intent-data/en-US.original.json' \
     "$HERE/" "$PI_HOST:$PI_DIR/"
+
+# <repo>/vector-agent/  ->  ~/wire-pod/vector-agent/  (exact mirror)
+"${RSYNC[@]}" --delete "$HERE/../../vector-agent/" "$PI_HOST:$PI_DIR/vector-agent/"
 
 if [[ ${#DRY[@]} -gt 0 ]]; then
     echo "(dry run: not restarting anything)"
@@ -34,5 +41,6 @@ fi
 
 "${SSH[@]}" "cd $PI_DIR && test -f .env || { echo 'ERROR: ~/$PI_DIR/.env missing (see .env.example)'; exit 1; }
   chmod 600 .env
-  sudo -n docker compose up -d --remove-orphans
+  mkdir -p agent-data && sudo -n chown -R 10001 agent-data   # vector-agent runs as uid 10001
+  sudo -n docker compose up -d --build --remove-orphans
   sudo -n docker compose ps --format '{{.Name}}\t{{.Status}}'"
