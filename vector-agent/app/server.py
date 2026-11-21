@@ -74,6 +74,17 @@ def _is_silence(text: str) -> bool:
     return len(words) == 0 or (len(words) == 1 and words[0] in _NOISE_WORDS)
 
 
+def _is_followup(body: dict) -> bool:
+    """wire-pod's knowledge-graph path (follow-ups after newVoiceRequest, and "I have a
+    question") holds Vector's behaviour control from the START of the request and loops
+    a "searching" animation, so robot actions must wait until he's done speaking.
+    wire-pod marks that path in its system prompt."""
+    for m in body.get("messages", []):
+        if m.get("role") == "system" and "You are in 'conversation' mode" in str(m.get("content")):
+            return True
+    return False
+
+
 def _user_text(body: dict) -> str:
     for m in reversed(body.get("messages", [])):
         if m.get("role") == "user":
@@ -114,6 +125,7 @@ def _chunk(cid: str, model: str, content: str | None = None, finish: str | None 
 async def chat_completions(request: Request):
     body = await request.json()
     text = _user_text(body)
+    followup = _is_followup(body)
     stream = bool(body.get("stream"))
     model = config.LLM_MODEL
     cid = "chatcmpl-" + uuid.uuid4().hex
@@ -132,6 +144,9 @@ async def chat_completions(request: Request):
             log.info("[%s] user: %s", thread, text)
             t0, said, final, tools_used = time.time(), [], None, set()
             turn.reset()
+            if followup:  # wire-pod already holds the robot: queue actions until after speech
+                turn.mark_speaking()
+                log.info("[%s] follow-up (knowledge-graph path): robot actions run after speech", thread)
             # Text from one model step is held until the step ends, because only then do we
             # know whether it calls robot tools. Speaking first would hand wire-pod the
             # robot's control and the action would then cut him off (see app/turn.py).
@@ -219,7 +234,7 @@ async def chat_completions(request: Request):
             yield "data: [DONE]\n\n"
             # Robot actions requested after he'd started talking: run once he's done
             # (~13 spoken characters per second, plus wire-pod's get-in/out animations).
-            turn.run_deferred_after(2.5 + len(spoken) / 13)
+            turn.run_deferred_after(3.5 + len(spoken) / 12)
 
     gen = silent_end() if _is_silence(text) else run_stream()
     if stream:

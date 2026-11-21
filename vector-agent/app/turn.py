@@ -22,6 +22,7 @@ CONTROL_TOOLS = {"drive", "turn", "move_head", "move_lift", "do_action", "play_a
 
 speaking = False
 _deferred: list[tuple] = []
+_background: set = set()  # strong refs: un-referenced asyncio tasks can be garbage collected
 
 
 def reset() -> None:
@@ -54,4 +55,7 @@ def run_deferred_after(seconds: float) -> None:
             except Exception as e:
                 log.warning("deferred action %s failed: %s", tool.name, e)
 
-    asyncio.get_running_loop().create_task(runner())
+    log.info("queued %d robot action(s) to run in %.1fs (after speech)", len(jobs), seconds)
+    task = asyncio.get_running_loop().create_task(runner())
+    _background.add(task)
+    task.add_done_callback(_background.discard)
