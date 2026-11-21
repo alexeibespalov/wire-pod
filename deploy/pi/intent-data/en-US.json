@@ -1,0 +1,568 @@
+[
+  {
+    "name": "intent_names_username_extend",
+    "keyphrases": [
+      "my name is",
+      "my name's"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_names_ask",
+    "keyphrases": [
+      "who am i",
+      "what's my name",
+      "whats my name",
+      "what is my name"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_character_age",
+    "keyphrases": [
+      "how old are you",
+      "what's your age",
+      "whats your age"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_weather_extend",
+    "keyphrases": [
+      "what's the weather",
+      "whats the weather",
+      "weather forecast",
+      "weather today",
+      "weather tomorrow",
+      "weather like"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_eyecolor",
+    "keyphrases": [
+      "eye color",
+      "eye colour"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_explore_start",
+    "keyphrases": [
+      "start exploring",
+      "go exploring",
+      "go explore"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_system_charger",
+    "keyphrases": [
+      "go to your charger",
+      "go to the charger",
+      "find your charger",
+      "go home",
+      "go charge",
+      "go to charger"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_system_sleep",
+    "keyphrases": [
+      "go to sleep"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_system_sleep",
+    "keyphrases": [
+      "sleep"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_system_noaudio",
+    "keyphrases": [
+      "[blank_audio]",
+      "[door opens]",
+      "[sighs]"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_greeting_hello",
+    "keyphrases": [
+      "hello",
+      "hi",
+      "hey",
+      "hi there",
+      "hello there",
+      "hello vector",
+      "hi vector"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_greeting_goodmorning",
+    "keyphrases": [
+      "good morning",
+      "morning",
+      "good afternoon"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_greeting_goodnight",
+    "keyphrases": [
+      "good night",
+      "goodnight",
+      "night night"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_greeting_goodbye",
+    "keyphrases": [
+      "goodbye",
+      "good bye",
+      "bye",
+      "bye bye",
+      "see you later"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_seasonal_happynewyear",
+    "keyphrases": [
+      "happy new year"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_seasonal_happyholidays",
+    "keyphrases": [
+      "merry christmas",
+      "happy holidays"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_amazon_signin",
+    "keyphrases": [
+      "sign in to alexa",
+      "sign into alexa"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_amazon_signin",
+    "keyphrases": [
+      "sign out of alexa"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_forward",
+    "keyphrases": [
+      "move forward",
+      "go forward",
+      "drive forward"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_turnaround",
+    "keyphrases": [
+      "turn around"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_turnleft",
+    "keyphrases": [
+      "turn left",
+      "go left"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_turnright",
+    "keyphrases": [
+      "turn right",
+      "go right"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_backup",
+    "keyphrases": [
+      "back up",
+      "go back",
+      "move back",
+      "back off",
+      "go backwards",
+      "move backwards"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_come",
+    "keyphrases": [
+      "come here",
+      "come to me"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_lookatme",
+    "keyphrases": [
+      "look at me"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_play_rollcube",
+    "keyphrases": [
+      "roll your cube",
+      "roll the cube"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_play_popawheelie",
+    "keyphrases": [
+      "pop a wheelie",
+      "do a wheelie",
+      "do a wheel stand"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_play_fistbump",
+    "keyphrases": [
+      "fist bump",
+      "fistbump",
+      "fist bomb"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_play_blackjack",
+    "keyphrases": [
+      "blackjack",
+      "play cards"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_play_pickupcube",
+    "keyphrases": [
+      "pick up your cube",
+      "pick up the cube",
+      "pick up cube"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_fetchcube",
+    "keyphrases": [
+      "fetch your cube",
+      "fetch the cube",
+      "bring me your cube",
+      "bring me the cube"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_findcube",
+    "keyphrases": [
+      "find your cube",
+      "find the cube"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_play_anytrick",
+    "keyphrases": [
+      "do a trick",
+      "something cool",
+      "show me a trick"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_play_keepaway",
+    "keyphrases": [
+      "keepaway",
+      "keep away"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_blackjack_hit",
+    "keyphrases": [
+      "hit",
+      "hit me"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_blackjack_stand",
+    "keyphrases": [
+      "stand",
+      "stay",
+      "i'll stand",
+      "ill stand"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_imperative_dance",
+    "keyphrases": [
+      "dance for me",
+      "do a dance",
+      "can you dance",
+      "dance to the music",
+      "dance to the beat",
+      "start dancing"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_dance",
+    "keyphrases": [
+      "dance",
+      "boogie"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_photo_take_extend",
+    "keyphrases": [
+      "take a photo",
+      "take a picture",
+      "take my photo",
+      "take my picture",
+      "take a selfie",
+      "take a photo of me"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_affirmative",
+    "keyphrases": [
+      "yes",
+      "yeah",
+      "yep",
+      "sure",
+      "correct",
+      "yes please",
+      "ok",
+      "okay"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_imperative_negative",
+    "keyphrases": [
+      "no",
+      "nope",
+      "dont",
+      "don't",
+      "no thanks",
+      "no thank you"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_imperative_praise",
+    "keyphrases": [
+      "good robot",
+      "good boy",
+      "good job",
+      "well done",
+      "good",
+      "awesome",
+      "amazing"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_imperative_abuse",
+    "keyphrases": [
+      "bad robot",
+      "bad boy",
+      "bad"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_imperative_apologize",
+    "keyphrases": [
+      "sorry",
+      "i'm sorry",
+      "im sorry",
+      "i apologize",
+      "never mind",
+      "nevermind"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_imperative_love",
+    "keyphrases": [
+      "i love you"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_love",
+    "keyphrases": [
+      "love you"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_imperative_quiet",
+    "keyphrases": [
+      "quiet",
+      "be quiet",
+      "stop",
+      "hush"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_imperative_shutup",
+    "keyphrases": [
+      "shut up"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_volumedown",
+    "keyphrases": [
+      "volume down",
+      "turn the volume down",
+      "turn down the volume",
+      "turn it down",
+      "be quieter"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_volumeup",
+    "keyphrases": [
+      "volume up",
+      "turn the volume up",
+      "turn up the volume",
+      "turn it up",
+      "be louder"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_volumeup",
+    "keyphrases": [
+      "louder"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_imperative_volumedown",
+    "keyphrases": [
+      "quieter"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_imperative_volumelevel_extend",
+    "keyphrases": [
+      "set your volume",
+      "set the volume",
+      "volume to"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_knowledge_promptquestion",
+    "keyphrases": [
+      "i have a question",
+      "let's talk",
+      "lets talk"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_knowledge_promptquestion",
+    "keyphrases": [
+      "question",
+      "conversation"
+    ],
+    "requiresexact": true
+  },
+  {
+    "name": "intent_clock_checktimer",
+    "keyphrases": [
+      "check the timer",
+      "check timer",
+      "check my timer",
+      "how much time is left"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_global_stop_extend",
+    "keyphrases": [
+      "stop the timer",
+      "stop timer",
+      "cancel the timer",
+      "cancel timer",
+      "stop the clock",
+      "stop the alarm"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_clock_settimer_extend",
+    "keyphrases": [
+      "set a timer",
+      "set timer",
+      "set the timer",
+      "start a timer",
+      "timer for"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_clock_time",
+    "keyphrases": [
+      "what time is it",
+      "what's the time",
+      "whats the time",
+      "tell me the time",
+      "time is it"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_message_recordmessage_extend",
+    "keyphrases": [
+      "record a message",
+      "record message",
+      "leave a message"
+    ],
+    "requiresexact": false
+  },
+  {
+    "name": "intent_message_playmessage_extend",
+    "keyphrases": [
+      "play message",
+      "play a message",
+      "play my message",
+      "play messages"
+    ],
+    "requiresexact": false
+  }
+]

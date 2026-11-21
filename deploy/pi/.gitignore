@@ -1,0 +1,4 @@
+# secrets and runtime state live only on the Pi
+.env
+data/
+intent-data/en-US.original.json

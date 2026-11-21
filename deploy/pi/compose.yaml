@@ -1,0 +1,63 @@
+# wire-pod for Vector X4J8 (192.168.1.150)
+#
+# Host networking: in IP mode wire-pod writes its own detected IP into Vector's
+# server_config + TLS cert, so it must see the Pi's LAN IP, not a Docker bridge IP.
+#
+# Ports (on the host):
+#   8443 - chipper (Vector voice/jdocs/token). NOT 443: Tailscale Funnel holds 443.
+#   8084 - chipper 2.0.1-compat listener
+#   80   - connCheck (Vector's /ok probe)
+#   8080 - web UI  -> http://192.168.1.39:8080
+services:
+  wire-pod:
+    image: ghcr.io/kercre123/wire-pod:main
+    container_name: wire-pod
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      WIREPOD_DATA_DIR: /data
+      WIREPOD_STT_SERVICE: vosk
+      WIREPOD_STT_LANGUAGE: en-US
+      WIREPOD_USE_INBUILT_BLE: "false"
+    volumes:
+      - ./data:/data
+      # SDK info (session cert + sdk_config.ini) wire-pod writes for Python/Go SDK clients
+      - ./data/anki_vector:/opt/.anki_vector
+      # Pruned voice-command keywords (more speech falls through to the LLM).
+      # Source: intent-data/build_intents.py; stock file: intent-data/en-US.original.json.
+      # To revert: delete this line and `docker compose up -d wire-pod`.
+      - ./intent-data/en-US.json:/opt/wire-pod/chipper/intent-data/en-US.json:ro
+      # Upstream bug: settings saves replace the /data symlink -> lost on recreate.
+      # This wrapper copies them back to ./data. See persist-sync.sh.
+      - ./persist-sync.sh:/persist-sync.sh:ro
+      - /etc/localtime:/etc/localtime:ro
+    command: ["bash", "/persist-sync.sh"]
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/ok"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # "I have a question" backend. wire-pod Knowledge provider = Custom,
+  # endpoint http://127.0.0.1:8091/v1 (localhost only), dummy key.
+  # Real key + upstream live in ./.env (chmod 600).
+  kg-proxy:
+    image: python:3.12-slim
+    container_name: kg-proxy
+    network_mode: host
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LISTEN_HOST: 127.0.0.1
+      LISTEN_PORT: "8091"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./kg-proxy/proxy.py:/app/proxy.py:ro
+    command: ["python", "-I", "/app/proxy.py"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
