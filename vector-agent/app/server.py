@@ -8,6 +8,7 @@ wire-pod can start speaking at the first sentence.
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -26,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 STATE = {"agent": None}
 _turn_lock = asyncio.Lock()  # one robot, one conversation at a time
 _THREAD_FILE = config.DATA_DIR / "thread.json"
+_CUE = re.compile(r"\{\{.*?\}\}")
 
 
 def _thread_id() -> str:
@@ -117,6 +119,14 @@ async def chat_completions(request: Request):
             if not said and final:  # e.g. canned reply not produced by the LLM
                 yield _chunk(cid, model, str(final))
                 said.append(str(final))
+            # Deterministic conversation mode: a reply that ends in a question keeps
+            # Vector listening, whether or not the model remembered the cue.
+            full = "".join(said)
+            spoken = _CUE.sub("", full).strip()
+            if spoken.endswith("?") and "newVoiceRequest" not in full:
+                cue = " {{newVoiceRequest||now}}"
+                yield _chunk(cid, model, cue)
+                said.append(cue)
             log.info("[%s] vector (%.2fs): %s", thread, time.time() - t0, "".join(said))
             yield _chunk(cid, model, None, "stop")
             yield "data: [DONE]\n\n"
