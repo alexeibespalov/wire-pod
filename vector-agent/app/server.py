@@ -86,6 +86,24 @@ def _is_followup(body: dict) -> bool:
     return False
 
 
+# Known speech-to-text mishearings (VOSK's small English model lacks some words).
+# Applied to the transcript before the agent sees it. Add new ones as they show up.
+_STT_FIXES = [
+    (re.compile(r"\b(?:a|an|in|and)\s+(?:mogi|moji|mo\s?gee|mojis|mogis)\b", re.I), "an emoji"),
+    (re.compile(r"\b(?:e|him|em|ian|e-?)\s?(?:oji|moji|mogi|ogi|mo\s?gee)s?\b", re.I), "emoji"),
+    (re.compile(r"\bemo\s?gee\b|\bmiji\b|\bimogi\b|\bemogi\b|\bemoje\b", re.I), "emoji"),
+]
+
+
+def _fix_transcript(text: str) -> str:
+    fixed = text
+    for pat, rep in _STT_FIXES:
+        fixed = pat.sub(rep, fixed)
+    if fixed != text:
+        log.info("stt fix: %r -> %r", text, fixed)
+    return fixed
+
+
 def _user_text(body: dict) -> str:
     for m in reversed(body.get("messages", [])):
         if m.get("role") == "user":
@@ -125,7 +143,7 @@ def _chunk(cid: str, model: str, content: str | None = None, finish: str | None 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
-    text = _user_text(body)
+    text = _fix_transcript(_user_text(body))
     followup = _is_followup(body)
     stream = bool(body.get("stream"))
     model = config.LLM_MODEL
