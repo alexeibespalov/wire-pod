@@ -97,8 +97,13 @@ def build_system_prompt(tool_names: list[str] | None = None) -> str:
     facts = memory.all_facts()
     mem = "\n".join(f"- {f}" for f in facts) if facts else "- (nothing yet)"
     web = WEB if tool_names and "tavily_search" in tool_names else NO_WEB
+    where = (f"You live in {config.HOME_LOCATION}. When the user asks about weather, news, "
+             f"events, opening times or anything local without naming a place, assume they "
+             f"mean {config.HOME_LOCATION} and include it in your searches.\n"
+             if config.HOME_LOCATION else "")
     return (
         f"{PERSONA}{web}\n"
-        f"RIGHT NOW\nIt is {now.strftime('%A %-d %B %Y, %-I:%M %p')} ({config.TIMEZONE.key}).\n\n"
+        f"RIGHT NOW\nIt is {now.strftime('%A %-d %B %Y, %-I:%M %p')} ({config.TIMEZONE.key}).\n"
+        f"{where}\n"
         f"WHAT YOU REMEMBER ABOUT YOUR PEOPLE\n{mem}\n"
     )

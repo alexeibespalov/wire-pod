@@ -37,6 +37,8 @@ THREAD_IDLE_MINUTES = float(_env("THREAD_IDLE_MINUTES", "10"))
 MAX_HISTORY_MESSAGES = int(_env("MAX_HISTORY_MESSAGES", "40"))
 MAX_AGENT_STEPS = int(_env("MAX_AGENT_STEPS", "6"))
 TIMEZONE = ZoneInfo(_env("AGENT_TZ", "Europe/London"))
+# Where Vector lives: default for weather/local questions. Set in the Pi's .env (kept out of git).
+HOME_LOCATION = os.environ.get("AGENT_LOCATION", "").strip()
 
 # --- Server
 LISTEN_HOST = _env("LISTEN_HOST", "127.0.0.1")
