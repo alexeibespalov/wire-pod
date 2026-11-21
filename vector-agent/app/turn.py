@@ -19,7 +19,8 @@ One robot, one conversation turn at a time (server holds a lock), so module stat
 
 # Tools that need Vector's behaviour control (motors, animations, face screen).
 CONTROL_TOOLS = {"drive", "turn", "move_head", "move_lift", "do_action", "play_animation",
-                 "show_picture", "show_text", "show_last_view", "draw_picture"}
+                 "show_picture", "show_text", "show_last_view", "draw_picture",
+                 "show_emoji"}
 
 import asyncio
 import time
