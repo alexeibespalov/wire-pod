@@ -53,6 +53,15 @@ def _thread_id() -> str:
     return t["id"]
 
 
+_NOISE_WORDS = {"", "the", "a", "an", "uh", "um", "hmm", "huh", "ah", "oh", "and", "it", "i"}
+
+
+def _is_silence(text: str) -> bool:
+    """VOSK turns silence/room noise into nothing or a lone filler word."""
+    words = re.sub(r"[^a-z' ]", " ", text.lower()).split()
+    return len(words) == 0 or (len(words) == 1 and words[0] in _NOISE_WORDS)
+
+
 def _user_text(body: dict) -> str:
     for m in reversed(body.get("messages", [])):
         if m.get("role") == "user":
@@ -96,15 +105,20 @@ async def chat_completions(request: Request):
     stream = bool(body.get("stream"))
     model = config.LLM_MODEL
     cid = "chatcmpl-" + uuid.uuid4().hex
-    if not text:
-        text = "(the user said something but speech-to-text caught nothing)"
+    async def silent_end():
+        # Follow-up listening heard nothing (or just noise): end the conversation
+        # quietly with a glance instead of answering thin air.
+        log.info("silence/noise after follow-up (%r): ending conversation", text)
+        yield _chunk(cid, model, "{{playAnimationWI||dartingEyes}}")
+        yield _chunk(cid, model, None, "stop")
+        yield "data: [DONE]\n\n"
 
     async def run_stream():
         async with _turn_lock:
             thread = _thread_id()
             cfg = {"configurable": {"thread_id": thread}}
             log.info("[%s] user: %s", thread, text)
-            t0, said, final = time.time(), [], None
+            t0, said, final, tools_used = time.time(), [], None, set()
             try:
                 async for mode, data in STATE["agent"].astream(text, cfg, stream_mode=["messages", "updates"]):
                     if mode == "messages":
@@ -124,8 +138,10 @@ async def chat_completions(request: Request):
                             yield _chunk(cid, model, msg.content)
                     elif mode == "updates":
                         for node, val in data.items():
-                            if node == "call_tool" and config.DEBUG:
-                                log.info("[%s] tool -> %s", thread, getattr(val, "content", val))
+                            if node == "call_tool":
+                                tools_used.add(getattr(val, "name", ""))
+                                if config.DEBUG:
+                                    log.info("[%s] tool -> %s", thread, getattr(val, "content", val))
                             if node == "vector_agent":
                                 final = val
             except Exception as e:  # never leave wire-pod hanging mid-stream
@@ -136,11 +152,18 @@ async def chat_completions(request: Request):
             if not said and final:  # e.g. canned reply not produced by the LLM
                 yield _chunk(cid, model, str(final))
                 said.append(str(final))
-            # Deterministic conversation mode: a reply that ends in a question keeps
-            # Vector listening, whether or not the model remembered the cue.
+            # Deterministic conversation mode (see config.FOLLOW_UP_MODE): keep Vector
+            # listening after he speaks so follow-ups don't need "Hey Vector".
             full = "".join(said)
             spoken = _CUE.sub("", full).strip()
-            if spoken.endswith("?") and "newVoiceRequest" not in full:
+            routine = "do_action" in tools_used  # don't listen while he dances etc.
+            if config.FOLLOW_UP_MODE == "always":
+                want = bool(spoken) and not routine
+            elif config.FOLLOW_UP_MODE == "questions":
+                want = spoken.endswith("?") and not routine
+            else:
+                want = False
+            if want and "newVoiceRequest" not in full:
                 cue = " {{newVoiceRequest||now}}"
                 yield _chunk(cid, model, cue)
                 said.append(cue)
@@ -148,11 +171,12 @@ async def chat_completions(request: Request):
             yield _chunk(cid, model, None, "stop")
             yield "data: [DONE]\n\n"
 
+    gen = silent_end() if _is_silence(text) else run_stream()
     if stream:
-        return StreamingResponse(run_stream(), media_type="text/event-stream")
+        return StreamingResponse(gen, media_type="text/event-stream")
 
     parts = []
-    async for line in run_stream():
+    async for line in gen:
         if line.startswith("data: {"):
             d = json.loads(line[6:])
             parts.append(d["choices"][0]["delta"].get("content") or "")

@@ -36,6 +36,11 @@ DATA_DIR = Path(_env("AGENT_DATA_DIR", "/data"))
 THREAD_IDLE_MINUTES = float(_env("THREAD_IDLE_MINUTES", "10"))
 MAX_HISTORY_MESSAGES = int(_env("MAX_HISTORY_MESSAGES", "40"))
 MAX_AGENT_STEPS = int(_env("MAX_AGENT_STEPS", "6"))
+# Keep listening after a reply (no "Hey Vector" needed for follow-ups):
+#   always    = after every spoken reply, except when a built-in routine was started
+#   questions = only when the reply ends with a question
+#   never     = only if the model adds the cue itself
+FOLLOW_UP_MODE = _env("FOLLOW_UP_MODE", "always")
 TIMEZONE = ZoneInfo(_env("AGENT_TZ", "Europe/London"))
 # Where Vector lives: default for weather/local questions. Set in the Pi's .env (kept out of git).
 HOME_LOCATION = os.environ.get("AGENT_LOCATION", "").strip()
