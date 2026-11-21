@@ -44,11 +44,15 @@ def _prepare(img: Image.Image) -> Image.Image:
 
 
 def _save(img: Image.Image) -> str:
+    # JPEG, not PNG: wire-pod's binary only registers Go's JPEG decoder, so Lua
+    # showImage() fails on PNG with "image: unknown format" (and silently shows nothing).
     config.FACE_DIR.mkdir(parents=True, exist_ok=True)
-    name = f"{int(time.time())}-{uuid.uuid4().hex[:6]}.png"
-    img.save(config.FACE_DIR / name)
-    old = sorted(p for p in config.FACE_DIR.glob("*.png"))
+    name = f"face-{int(time.time())}-{uuid.uuid4().hex[:6]}.jpg"
+    img.convert("RGB").save(config.FACE_DIR / name, "JPEG", quality=95, subsampling=0)
+    old = sorted(config.FACE_DIR.glob("face-*.jpg"))
     for p in old[:-30]:  # keep the last 30
+        p.unlink(missing_ok=True)
+    for p in config.FACE_DIR.glob("*.png"):  # leftovers from the PNG era
         p.unlink(missing_ok=True)
     return name
 
