@@ -7,7 +7,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from pydantic import Field
 
-from . import robot
+from . import robot, turn
 
 _MANIFEST = {a["name"]: a["length_ms"] for a in
              json.loads((Path(__file__).parent / "data" / "anim_manifest.json").read_text())}
@@ -56,5 +56,6 @@ async def play_animation(name: Annotated[str, Field(description=
     ms = _MANIFEST[real]
     if ms > MAX_MS:
         return f"error: {real} is {ms/1000:.0f}s long, too long to play here"
+    await turn.wait_for_lead_in()
     await robot.lua(f"{robot.control()}playAnimation({robot.lua_str(real)})")
     return f"played {real} ({ms/1000:.1f}s)"

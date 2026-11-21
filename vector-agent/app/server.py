@@ -38,6 +38,7 @@ _SEARCH_FILLERS = [
     "{{playAnimationWI||dartingEyes}} Hang on, let me find out. ",
     "{{playAnimationWI||thinking}} Good one. Let me check. ",
 ]
+_LEAD_INS = ["Here it comes!", "Watch this!", "Check this out!", "Ta-da, here you go!"]
 _PICTURE_FILLERS = [
     "Ooh, let me find a picture. ",
     "Hang on, finding one for my screen. ",
@@ -143,9 +144,8 @@ async def chat_completions(request: Request):
             cfg = {"configurable": {"thread_id": thread}}
             log.info("[%s] user: %s", thread, text)
             t0, said, final, tools_used = time.time(), [], None, set()
-            turn.reset()
-            if followup:  # knowledge-graph path: wire-pod holds the robot from the start
-                turn.mark_wirepod_control()
+            turn.reset(is_followup=followup)  # follow-up: wire-pod holds the robot from the start
+            if followup:
                 log.info("[%s] follow-up (knowledge-graph path): wire-pod holds control", thread)
             # Text from one model step is held until the step ends, because only then do we
             # know whether it calls robot tools: those act first, then he talks (an image
@@ -185,6 +185,11 @@ async def chat_completions(request: Request):
                                 uses_control = bool(step_tools & turn.CONTROL_TOOLS)
                                 if not step_tools:
                                     out = speak(text_out)                      # the answer
+                                elif uses_control and turn.followup and not said:
+                                    # stop wire-pod's looping "searching" animation with a
+                                    # short lead-in; the face is used once it's spoken
+                                    out = speak(random.choice(_LEAD_INS))
+                                    turn.mark_lead_in()
                                 elif uses_control:
                                     out = None                                 # act first, talk after
                                 elif text_out.strip():

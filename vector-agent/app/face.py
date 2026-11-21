@@ -57,21 +57,11 @@ def _save(img: Image.Image) -> str:
     return name
 
 
-REFRESH_MS = 600
-
-
 async def _display(name: str, seconds: float) -> None:
     ms = int(max(1.5, min(seconds, 15)) * 1000)
     path = robot.lua_str(f"{config.FACE_DIR_IN_WIREPOD}/{name}")
-    if turn.wirepod_has_control:
-        # Follow-ups: wire-pod keeps replaying its "searching" animation while it waits
-        # for our reply, which repaints the face about once a second. Keep re-sending
-        # the image so it stays up for the whole duration.
-        n = max(1, ms // REFRESH_MS)
-        await robot.lua(f"for i=1,{n} do showImage({path}, {REFRESH_MS + 400}) "
-                        f"sleep({REFRESH_MS}) end")
-    else:
-        await robot.lua(f"{robot.control()}showImage({path}, {ms}) sleep({ms})")
+    await turn.wait_for_lead_in()  # follow-ups: let "here it comes" finish first
+    await robot.lua(f"{robot.control()}showImage({path}, {ms}) sleep({ms})")
 
 
 # ------------------------------------------------------------------------ web search
