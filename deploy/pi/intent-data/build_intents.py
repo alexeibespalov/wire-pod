@@ -17,9 +17,7 @@ SPEC = [
     ("intent_names_username_extend", False, ["my name is", "my name's"]),
     ("intent_names_ask", False, ["who am i", "what's my name", "whats my name", "what is my name"]),
     ("intent_character_age", False, ["how old are you", "what's your age", "whats your age"]),
-    # --- weather (kept explicit; unconfigured weather API -> robot says no data)
-    ("intent_weather_extend", False, ["what's the weather", "whats the weather", "weather forecast",
-                                      "weather today", "weather tomorrow", "weather like"]),
+    # --- weather: DISABLED (see DISABLED below) -> the agent answers via web search
     # --- looks / system
     ("intent_imperative_eyecolor", False, ["eye color", "eye colour"]),
     ("intent_explore_start", False, ["start exploring", "go exploring", "go explore"]),
@@ -98,12 +96,18 @@ SPEC = [
 ]
 
 
+# Built-in intents deliberately removed so these requests fall through to the agent.
+DISABLED = {
+    "intent_weather_extend",  # needs wire-pod's own weather API key; agent uses Tavily instead
+}
+
+
 def main(orig_path, out_path):
     orig = json.load(open(orig_path))
     orig_names = {i["name"] for i in orig}
     new_names = {n for n, _, _ in SPEC}
-    missing = orig_names - new_names
-    unknown = new_names - orig_names
+    missing = orig_names - new_names - DISABLED
+    unknown = (new_names | DISABLED) - orig_names
     if missing or unknown:
         sys.exit(f"intent mismatch: missing={sorted(missing)} unknown={sorted(unknown)}")
 
@@ -117,7 +121,7 @@ def main(orig_path, out_path):
     n_orig = sum(len(i["keyphrases"]) for i in orig)
     n_new = sum(len(p) for _, _, p in SPEC)
     n_exact = sum(len(p) for _, e, p in SPEC if e)
-    print(f"intents: {len(orig_names)} (all kept) | keyphrases {n_orig} -> {n_new} "
+    print(f"intents: {len(new_names)} of {len(orig_names)} kept (disabled: {sorted(DISABLED)}) | keyphrases {n_orig} -> {n_new} "
           f"({n_exact} exact-only) | entries {len(orig)} -> {len(out)}")
 
 

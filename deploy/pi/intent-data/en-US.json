@@ -27,18 +27,6 @@
     "requiresexact": false
   },
   {
-    "name": "intent_weather_extend",
-    "keyphrases": [
-      "what's the weather",
-      "whats the weather",
-      "weather forecast",
-      "weather today",
-      "weather tomorrow",
-      "weather like"
-    ],
-    "requiresexact": false
-  },
-  {
     "name": "intent_imperative_eyecolor",
     "keyphrases": [
       "eye color",
