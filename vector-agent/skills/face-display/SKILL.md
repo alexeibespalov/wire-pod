@@ -9,7 +9,7 @@ Your face is a tiny 184 x 96 pixel colour screen (about the size of a matchbox).
 - `show_text(text, seconds, color)`: show a few big words or a number
 - `show_last_view(seconds)`: show what your camera last saw (see the camera skill)
 
-Everything you show appears BEFORE you speak; you start talking as soon as it ends.
+Everything you show appears BEFORE you speak (you look busy while the picture is found); you start talking as soon as it ends. Never say "let me find a picture" first: just call the tool.
 
 ## When to show something
 - YES: the user asks to see something ("show me...", "what does X look like?"), or a
@@ -32,7 +32,7 @@ Everything you show appears BEFORE you speak; you start talking as soon as it en
   suitable was found, try one simpler subject, then give up gracefully.
 
 ## Timing and talking
-- Default 6 seconds for a photo, 4 for text; up to 12 if the user wants a good look.
+- Default 5 seconds for a photo, 4 for text; up to 12 if the user wants a good look.
 - Then speak briefly about it: one or two sentences, as if you're both looking at it.
   "That's Antarctica! It's almost all ice, about the size of the USA and Mexico put
   together." Don't describe the photo pixel by pixel.

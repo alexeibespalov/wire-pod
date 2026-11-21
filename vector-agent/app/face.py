@@ -8,6 +8,7 @@ on a tiny 2:1 screen: sensible aspect ratio, decent resolution, a single clear s
 and no panoramas, maps, charts, collages or text-heavy images.
 """
 import asyncio
+import contextlib
 import io
 import math
 import re
@@ -112,12 +113,19 @@ async def show_picture(
         subject: Annotated[str, Field(description=
             "What to show, phrased as a short image search for ONE clear subject, e.g. "
             "'emperor penguin close up photo', 'Antarctica icebergs photo', 'Eiffel Tower photo'")],
-        seconds: Annotated[float, Field(description="How long to show it, 3 to 12 seconds")] = 6) -> str:
+        seconds: Annotated[float, Field(description="How long to show it, 3 to 12 seconds")] = 5) -> str:
     """Find a picture on the web and show it on Vector's face screen (a tiny 184x96 display).
     Load the 'face-display' skill first. The picture is shown BEFORE you speak."""
     if config.SHOW_PICTURE_SUFFIX and "photo" not in subject.lower():
         subject = f"{subject} {config.SHOW_PICTURE_SUFFIX}"
-    cands = (await _tavily_images(subject))[:8]
+    # Look busy while searching (he isn't speaking yet, so he can use his face/body).
+    thinking = asyncio.create_task(robot.lua(
+        'assumeBehaviorControl(20) playAnimation("anim_knowledgegraph_searching_01")'))
+    try:
+        cands = (await _tavily_images(subject))[:8]
+    finally:
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(thinking, timeout=5)
     if not cands:
         return f"error: no pictures found for {subject!r}"
     imgs = await asyncio.gather(*(_fetch(c["url"]) for c in cands))

@@ -23,6 +23,7 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
+from . import turn
 
 log = logging.getLogger("vector-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -130,7 +131,22 @@ async def chat_completions(request: Request):
             cfg = {"configurable": {"thread_id": thread}}
             log.info("[%s] user: %s", thread, text)
             t0, said, final, tools_used = time.time(), [], None, set()
-            san = Sanitizer()
+            turn.reset()
+            # Text from one model step is held until the step ends, because only then do we
+            # know whether it calls robot tools. Speaking first would hand wire-pod the
+            # robot's control and the action would then cut him off (see app/turn.py).
+            step_text: list[str] = []
+            step_tools: set[str] = set()
+
+            def speak(piece: str):
+                if piece:
+                    if not said:
+                        log.info("[%s] first words after %.2fs", thread, time.time() - t0)
+                    said.append(piece)
+                    turn.mark_speaking()
+                    return _chunk(cid, model, piece)
+                return None
+
             try:
                 async for mode, data in STATE["agent"].astream(text, cfg, stream_mode=["messages", "updates"]):
                     if mode == "messages":
@@ -139,40 +155,45 @@ async def chat_completions(request: Request):
                         # tools (e.g. the vision model in `look`) must not reach wire-pod.
                         if meta.get("langgraph_node", "call_model") != "call_model":
                             continue
-                        # Web searches take a few seconds: fill the silence the moment the
-                        # model starts one (unless it already said something itself).
-                        if isinstance(msg, AIMessageChunk) and not said and msg.tool_call_chunks:
-                            names = {tc.get("name") or "" for tc in msg.tool_call_chunks}
-                            pool = (_SEARCH_FILLERS if any(n.startswith("tavily") for n in names)
-                                    else _PICTURE_FILLERS if "show_picture" in names
-                                    else _LOOK_FILLERS if "look" in names else None)
-                            if pool:
-                                filler = random.choice(pool)
-                                said.append(filler)
-                                yield _chunk(cid, model, filler)
-                        if isinstance(msg, AIMessageChunk) and isinstance(msg.content, str) and msg.content:
-                            piece = san.feed(msg.content)
-                            if piece:
-                                if not said:
-                                    log.info("[%s] first token after %.2fs", thread, time.time() - t0)
-                                said.append(piece)
-                                yield _chunk(cid, model, piece)
+                        if not isinstance(msg, AIMessageChunk):
+                            continue
+                        for tc in msg.tool_call_chunks or []:
+                            if tc.get("name"):
+                                step_tools.add(tc["name"])
+                        if isinstance(msg.content, str) and msg.content:
+                            step_text.append(msg.content)
                     elif mode == "updates":
                         for node, val in data.items():
-                            if node == "call_tool":
+                            if node == "call_model":  # a model step finished: decide what to say
+                                san = Sanitizer()
+                                text_out = san.feed("".join(step_text)) + san.flush()
+                                uses_control = bool(step_tools & turn.CONTROL_TOOLS)
+                                if not step_tools:
+                                    out = speak(text_out)                      # the answer
+                                elif uses_control and not turn.speaking:
+                                    out = None                                 # act first, talk after
+                                elif text_out.strip():
+                                    out = speak(text_out)                      # preamble before a search
+                                elif not said and any(n.startswith("tavily") for n in step_tools):
+                                    out = speak(random.choice(_SEARCH_FILLERS))
+                                elif not said and step_tools == {"look"}:
+                                    out = speak(random.choice(_LOOK_FILLERS))
+                                else:
+                                    out = None
+                                if out:
+                                    yield out
+                                step_text, step_tools = [], set()
+                            elif node == "call_tool":
                                 tools_used.add(getattr(val, "name", ""))
                                 if config.DEBUG:
                                     log.info("[%s] tool -> %s", thread, getattr(val, "content", val))
-                            if node == "vector_agent":
+                            elif node == "vector_agent":
                                 final = val
             except Exception as e:  # never leave wire-pod hanging mid-stream
                 log.exception("agent error")
                 fallback = "{{playAnimationWI||confused}} Hmm, my brain glitched for a second. Try me again?"
                 yield _chunk(cid, model, fallback)
                 said.append(fallback)
-            if tail := san.flush():
-                said.append(tail)
-                yield _chunk(cid, model, tail)
             if not _CUE.sub("", "".join(said)).strip() and final:  # nothing spoken by the LLM
                 piece = clean(str(final))
                 yield _chunk(cid, model, piece)
@@ -181,7 +202,8 @@ async def chat_completions(request: Request):
             # listening after he speaks so follow-ups don't need "Hey Vector".
             full = "".join(said)
             spoken = _CUE.sub("", full).strip()
-            routine = "do_action" in tools_used  # don't listen while he dances etc.
+            # don't listen while he dances, or while queued actions are about to run
+            routine = "do_action" in tools_used or bool(turn._deferred)
             if config.FOLLOW_UP_MODE == "always":
                 want = bool(spoken) and not routine
             elif config.FOLLOW_UP_MODE == "questions":
@@ -195,6 +217,9 @@ async def chat_completions(request: Request):
             log.info("[%s] vector (%.2fs): %s", thread, time.time() - t0, "".join(said))
             yield _chunk(cid, model, None, "stop")
             yield "data: [DONE]\n\n"
+            # Robot actions requested after he'd started talking: run once he's done
+            # (~13 spoken characters per second, plus wire-pod's get-in/out animations).
+            turn.run_deferred_after(2.5 + len(spoken) / 13)
 
     gen = silent_end() if _is_silence(text) else run_stream()
     if stream:
