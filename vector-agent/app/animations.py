@@ -56,5 +56,5 @@ async def play_animation(name: Annotated[str, Field(description=
     ms = _MANIFEST[real]
     if ms > MAX_MS:
         return f"error: {real} is {ms/1000:.0f}s long, too long to play here"
-    await robot.lua(f"assumeBehaviorControl(20) playAnimation({robot.lua_str(real)})")
+    await robot.lua(f"{robot.control()}playAnimation({robot.lua_str(real)})")
     return f"played {real} ({ms/1000:.1f}s)"

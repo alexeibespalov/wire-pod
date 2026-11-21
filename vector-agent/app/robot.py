@@ -31,6 +31,13 @@ def lua_str(value: str) -> str:
     return json.dumps(value)
 
 
+def control() -> str:
+    """Lua prefix to take behaviour control, unless wire-pod already holds it this turn
+    (then asking would steal it from wire-pod and cut Vector's speech; see app/turn.py)."""
+    from . import turn
+    return "" if turn.wirepod_has_control else "assumeBehaviorControl(20) "
+
+
 async def lua(script: str) -> None:
     """Run Lua on the robot. Blocks until the script (and anything synchronous in it) ends.
     wire-pod releases behaviour control automatically when the script finishes."""

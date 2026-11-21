@@ -1,61 +1,34 @@
-"""Per-turn coordination between the agent's robot actions and wire-pod's speech.
+"""Per-turn coordination between the agent's robot actions and wire-pod.
 
-wire-pod grabs Vector's behaviour control (OVERRIDE priority) as soon as the first
-words of a reply arrive, and holds it while it speaks. A robot action that asks for
-control during that time *steals* it and wire-pod stops talking mid-reply. So:
+Robot actions (animations, face screen, motors) need Vector's behaviour control.
+wire-pod also takes it:
+  * normal requests ("Hey Vector, ..."): at the first words of the reply
+  * follow-ups / "I have a question" (knowledge-graph path): at the START of the request
 
-* before any words have been sent: robot actions run immediately (action first,
-  then speech)
-* once words have been sent: robot actions are queued and run after Vector has
-  finished speaking
+If wire-pod holds control and we ask for it too, we steal it and wire-pod stops
+talking. But while wire-pod holds control, commands from wire-pod's own connection
+(which our Lua/SDK calls go through) are accepted WITHOUT asking (verified on the robot),
+so in that state we simply don't ask.
+
+The server also never lets text from a step that uses robot tools be spoken before
+the action, so pictures/animations happen first and he talks afterwards (an image shown
+over his talking face comes out black).
 
 One robot, one conversation turn at a time (server holds a lock), so module state is fine.
 """
-import asyncio
-import logging
-
-log = logging.getLogger("vector-agent")
 
 # Tools that need Vector's behaviour control (motors, animations, face screen).
 CONTROL_TOOLS = {"drive", "turn", "move_head", "move_lift", "do_action", "play_animation",
                  "show_picture", "show_text", "show_last_view"}
 
-speaking = False
-_deferred: list[tuple] = []
-_background: set = set()  # strong refs: un-referenced asyncio tasks can be garbage collected
+wirepod_has_control = False
 
 
 def reset() -> None:
-    global speaking
-    speaking = False
-    _deferred.clear()
+    global wirepod_has_control
+    wirepod_has_control = False
 
 
-def mark_speaking() -> None:
-    global speaking
-    speaking = True
-
-
-def defer(tool, args: dict) -> None:
-    _deferred.append((tool, args))
-
-
-def run_deferred_after(seconds: float) -> None:
-    """Run queued robot actions once wire-pod has (probably) finished speaking."""
-    if not _deferred:
-        return
-    jobs = list(_deferred)
-    _deferred.clear()
-
-    async def runner():
-        await asyncio.sleep(seconds)
-        for tool, args in jobs:
-            try:
-                log.info("deferred action %s(%s): %s", tool.name, args, await tool.ainvoke(args))
-            except Exception as e:
-                log.warning("deferred action %s failed: %s", tool.name, e)
-
-    log.info("queued %d robot action(s) to run in %.1fs (after speech)", len(jobs), seconds)
-    task = asyncio.get_running_loop().create_task(runner())
-    _background.add(task)
-    task.add_done_callback(_background.discard)
+def mark_wirepod_control() -> None:
+    global wirepod_has_control
+    wirepod_has_control = True

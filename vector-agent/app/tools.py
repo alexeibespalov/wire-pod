@@ -12,7 +12,7 @@ from typing import Literal
 
 from langchain_core.tools import tool
 
-from . import memory
+from . import memory, turn
 from .animations import play_animation
 from .face import show_last_view, show_picture, show_text
 from .robot import sdk as _sdk
@@ -22,7 +22,11 @@ from .vision import look
 
 @contextlib.asynccontextmanager
 async def _in_control():
-    """Pause Vector's autonomous behaviours while we drive his motors."""
+    """Pause Vector's autonomous behaviours while we drive his motors. If wire-pod already
+    holds control this turn, use it (asking again would cut off his speech)."""
+    if turn.wirepod_has_control:
+        yield
+        return
     await _sdk("assume_behavior_control", priority="default")
     await asyncio.sleep(0.4)  # let the control grant land
     try:

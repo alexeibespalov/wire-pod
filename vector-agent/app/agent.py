@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.func import entrypoint, task
 from langgraph.graph.message import add_messages
 
-from . import config, turn
+from . import config
 from .prompt import build_system_prompt
 from .tools import TOOLS
 
@@ -76,11 +76,6 @@ def build_agent(checkpointer, extra_tools: list | None = None):
         tool = tools_by_name.get(tool_call["name"])
         if tool is None:
             content = f"error: no tool called {tool_call['name']}"
-        elif tool.name in turn.CONTROL_TOOLS and turn.speaking:
-            # Vector is already talking this turn: taking control now would cut him off.
-            turn.defer(tool, tool_call["args"])
-            content = ("queued: this will happen right after you finish speaking. "
-                       "Say a short lead-in like 'here it comes' or 'watch this'.")
         else:
             try:
                 content = _as_text(await tool.ainvoke(tool_call["args"]))

@@ -21,7 +21,7 @@ from langchain_core.tools import tool
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
 from pydantic import Field
 
-from . import config, robot
+from . import config, robot, turn
 
 W, H = config.FACE_W, config.FACE_H
 TARGET = W / H  # ~1.92
@@ -60,7 +60,7 @@ def _save(img: Image.Image) -> str:
 async def _display(name: str, seconds: float) -> None:
     ms = int(max(1.5, min(seconds, 15)) * 1000)
     path = robot.lua_str(f"{config.FACE_DIR_IN_WIREPOD}/{name}")
-    await robot.lua(f"assumeBehaviorControl(20) showImage({path}, {ms}) sleep({ms})")
+    await robot.lua(f"{robot.control()}showImage({path}, {ms}) sleep({ms})")
 
 
 # ------------------------------------------------------------------------ web search
@@ -122,14 +122,16 @@ async def show_picture(
     Load the 'face-display' skill first. The picture is shown BEFORE you speak."""
     if config.SHOW_PICTURE_SUFFIX and "photo" not in subject.lower():
         subject = f"{subject} {config.SHOW_PICTURE_SUFFIX}"
-    # Look busy while searching (he isn't speaking yet, so he can use his face/body).
-    thinking = asyncio.create_task(robot.lua(
-        'assumeBehaviorControl(20) playAnimation("anim_knowledgegraph_searching_01")'))
+    # Look busy while searching. Not needed when wire-pod holds control (follow-ups):
+    # it's already looping its own "searching" animation.
+    thinking = None if turn.wirepod_has_control else asyncio.create_task(robot.lua(
+        f'{robot.control()}playAnimation("anim_knowledgegraph_searching_01")'))
     try:
         cands = (await _tavily_images(subject))[:8]
     finally:
-        with contextlib.suppress(Exception):
-            await asyncio.wait_for(thinking, timeout=5)
+        if thinking is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(thinking, timeout=5)
     if not cands:
         return f"error: no pictures found for {subject!r}"
     imgs = await asyncio.gather(*(_fetch(c["url"]) for c in cands))
