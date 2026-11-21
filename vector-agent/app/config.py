@@ -20,9 +20,19 @@ LLM_MODEL = _env("FORCE_MODEL", "qwen3.6-flash")
 LLM_EXTRA_BODY = json.loads(_env("LLM_EXTRA_BODY", '{"enable_thinking": false}'))
 LLM_TEMPERATURE = float(_env("LLM_TEMPERATURE", "0.8"))
 
+# Vision (camera "look" tool): any multimodal model on the same endpoint. qwen3.6-flash sees.
+VISION_MODEL = _env("VISION_MODEL", LLM_MODEL)
+
 # --- Robot (via wire-pod's local SDK web API)
 WIREPOD_URL = _env("WIREPOD_URL", "http://127.0.0.1:8080").rstrip("/")
 VECTOR_SERIAL = _env("VECTOR_SERIAL", "00609161")
+
+# --- Face screen. Vector 1.0 = 184x96 (Vector 2.0 "xray" = 160x80). wire-pod's showImage
+# doesn't scale, so images must match exactly.
+FACE_W = int(_env("FACE_W", "184"))
+FACE_H = int(_env("FACE_H", "96"))
+FACE_FONT = _env("FACE_FONT", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+SHOW_PICTURE_SUFFIX = _env("SHOW_PICTURE_SUFFIX", "photo")
 
 # --- Web search (Tavily remote MCP). Optional: no key -> no web tools.
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "").strip()
@@ -33,6 +43,10 @@ TAVILY_DEFAULTS = _env("TAVILY_DEFAULTS", '{"search_depth": "basic", "max_result
 
 # --- Agent behaviour
 DATA_DIR = Path(_env("AGENT_DATA_DIR", "/data"))
+# Face images: written here by the agent, read by wire-pod at FACE_DIR_IN_WIREPOD
+# (same host folder bind-mounted into both containers).
+FACE_DIR = DATA_DIR / "face"
+FACE_DIR_IN_WIREPOD = _env("FACE_DIR_IN_WIREPOD", "/face")
 THREAD_IDLE_MINUTES = float(_env("THREAD_IDLE_MINUTES", "10"))
 MAX_HISTORY_MESSAGES = int(_env("MAX_HISTORY_MESSAGES", "40"))
 MAX_AGENT_STEPS = int(_env("MAX_AGENT_STEPS", "6"))

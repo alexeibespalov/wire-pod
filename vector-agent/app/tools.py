@@ -10,21 +10,14 @@ import asyncio
 import contextlib
 from typing import Literal
 
-import httpx
 from langchain_core.tools import tool
 
-from . import config, memory
-
-_client = httpx.AsyncClient(timeout=15)
-
-
-async def _sdk(endpoint: str, **params) -> str:
-    params["serial"] = config.VECTOR_SERIAL
-    r = await _client.get(f"{config.WIREPOD_URL}/api-sdk/{endpoint}", params=params)
-    text = r.text.strip()
-    if r.status_code >= 400 or text.startswith("error"):
-        raise RuntimeError(f"{endpoint}: {text[:200]}")
-    return text
+from . import memory
+from .animations import play_animation
+from .face import show_last_view, show_picture, show_text
+from .robot import sdk as _sdk
+from .skills import load_skill
+from .vision import look
 
 
 @contextlib.asynccontextmanager
@@ -126,6 +119,7 @@ _ACTIONS = {
     "take a photo": "intent_photo_take_extend",
     "play blackjack": "intent_play_blackjack",
     "play keepaway": "intent_play_keepaway",
+    "recognize the user": "intent_names_ask",
 }
 
 
@@ -133,7 +127,7 @@ _ACTIONS = {
 async def do_action(action: Literal[
     "dance", "fist bump", "go to charger", "go to sleep", "explore", "come to the user",
     "look at the user", "do a trick", "pop a wheelie", "find cube", "roll cube",
-    "pick up cube", "take a photo", "play blackjack", "play keepaway",
+    "pick up cube", "take a photo", "play blackjack", "play keepaway", "recognize the user",
 ]) -> str:
     """Start one of Vector's own built-in behaviours (his real personality routines,
     with full animation and sound). It starts right after you reply, so keep your
@@ -186,5 +180,6 @@ def forget(about: str) -> str:
 
 
 TOOLS = [drive, turn, move_head, move_lift, do_action, set_eye_color, battery_status,
-         remember, forget]
+         remember, forget,
+         load_skill, play_animation, look, show_picture, show_text, show_last_view]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}

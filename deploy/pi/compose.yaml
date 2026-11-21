@@ -30,6 +30,8 @@ services:
       # Upstream bug: settings saves replace the /data symlink -> lost on recreate.
       # This wrapper copies them back to ./data. See persist-sync.sh.
       - ./persist-sync.sh:/persist-sync.sh:ro
+      # Face-screen images written by vector-agent (agent-data/face), shown via Lua showImage("/face/..")
+      - ./agent-data/face:/face:ro
       - /etc/localtime:/etc/localtime:ro
     command: ["bash", "/persist-sync.sh"]
     stop_grace_period: 20s

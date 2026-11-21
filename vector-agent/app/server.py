@@ -22,6 +22,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
+from .speech import Sanitizer, clean
 
 log = logging.getLogger("vector-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -35,6 +36,16 @@ _SEARCH_FILLERS = [
     "{{playAnimationWI||thinking}} One sec, checking the internet. ",
     "{{playAnimationWI||dartingEyes}} Hang on, let me find out. ",
     "{{playAnimationWI||thinking}} Good one. Let me check. ",
+]
+_PICTURE_FILLERS = [
+    "Ooh, let me find a picture. ",
+    "Hang on, finding one for my screen. ",
+    "One sec, let me show you. ",
+]
+_LOOK_FILLERS = [
+    "Let me see. ",
+    "Ooh, let me have a look. ",
+    "Hold still, I'm looking. ",
 ]
 
 
@@ -119,23 +130,33 @@ async def chat_completions(request: Request):
             cfg = {"configurable": {"thread_id": thread}}
             log.info("[%s] user: %s", thread, text)
             t0, said, final, tools_used = time.time(), [], None, set()
+            san = Sanitizer()
             try:
                 async for mode, data in STATE["agent"].astream(text, cfg, stream_mode=["messages", "updates"]):
                     if mode == "messages":
                         msg, meta = data
+                        # Only the agent's own model call speaks. Model calls made INSIDE
+                        # tools (e.g. the vision model in `look`) must not reach wire-pod.
+                        if meta.get("langgraph_node", "call_model") != "call_model":
+                            continue
                         # Web searches take a few seconds: fill the silence the moment the
                         # model starts one (unless it already said something itself).
-                        if (isinstance(msg, AIMessageChunk) and not said and msg.tool_call_chunks
-                                and any((tc.get("name") or "").startswith("tavily")
-                                        for tc in msg.tool_call_chunks)):
-                            filler = random.choice(_SEARCH_FILLERS)
-                            said.append(filler)
-                            yield _chunk(cid, model, filler)
-                        if isinstance(msg, AIMessageChunk) and msg.content:
-                            if not said:
-                                log.info("[%s] first token after %.2fs", thread, time.time() - t0)
-                            said.append(msg.content)
-                            yield _chunk(cid, model, msg.content)
+                        if isinstance(msg, AIMessageChunk) and not said and msg.tool_call_chunks:
+                            names = {tc.get("name") or "" for tc in msg.tool_call_chunks}
+                            pool = (_SEARCH_FILLERS if any(n.startswith("tavily") for n in names)
+                                    else _PICTURE_FILLERS if "show_picture" in names
+                                    else _LOOK_FILLERS if "look" in names else None)
+                            if pool:
+                                filler = random.choice(pool)
+                                said.append(filler)
+                                yield _chunk(cid, model, filler)
+                        if isinstance(msg, AIMessageChunk) and isinstance(msg.content, str) and msg.content:
+                            piece = san.feed(msg.content)
+                            if piece:
+                                if not said:
+                                    log.info("[%s] first token after %.2fs", thread, time.time() - t0)
+                                said.append(piece)
+                                yield _chunk(cid, model, piece)
                     elif mode == "updates":
                         for node, val in data.items():
                             if node == "call_tool":
@@ -149,9 +170,13 @@ async def chat_completions(request: Request):
                 fallback = "{{playAnimationWI||confused}} Hmm, my brain glitched for a second. Try me again?"
                 yield _chunk(cid, model, fallback)
                 said.append(fallback)
-            if not said and final:  # e.g. canned reply not produced by the LLM
-                yield _chunk(cid, model, str(final))
-                said.append(str(final))
+            if tail := san.flush():
+                said.append(tail)
+                yield _chunk(cid, model, tail)
+            if not _CUE.sub("", "".join(said)).strip() and final:  # nothing spoken by the LLM
+                piece = clean(str(final))
+                yield _chunk(cid, model, piece)
+                said.append(piece)
             # Deterministic conversation mode (see config.FOLLOW_UP_MODE): keep Vector
             # listening after he speaks so follow-ups don't need "Hey Vector".
             full = "".join(said)

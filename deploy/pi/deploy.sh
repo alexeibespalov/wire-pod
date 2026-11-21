@@ -49,7 +49,7 @@ fi
 
 "${SSH[@]}" "cd $PI_DIR && test -f .env || { echo 'ERROR: ~/$PI_DIR/.env missing (see .env.example)'; exit 1; }
   chmod 600 .env
-  mkdir -p agent-data && sudo -n chown -R 10001 agent-data   # vector-agent runs as uid 10001
+  mkdir -p agent-data/face && sudo -n chown -R 10001 agent-data   # vector-agent runs as uid 10001
   sudo -n docker compose up -d --build --remove-orphans
   if [ $RESTART_WIREPOD = 1 ]; then echo 'overlay changed: restarting wire-pod'; sudo -n docker compose restart wire-pod; fi
   sudo -n docker compose ps --format '{{.Name}}\t{{.Status}}'"
