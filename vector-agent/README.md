@@ -15,6 +15,7 @@ wire-pod (wake word -> VOSK STT -> intent match) --unmatched--> vector-agent :80
   built-in behaviours via `cloud_intent`, eye colour, battery) + memory tools
 * `app/agent.py`: the ReAct loop
 * `app/server.py`: OpenAI-compatible SSE front door; ignores wire-pod's system prompt/history
+* `app/navmap.py` / `app/explore.py`: map understanding. Summarises the robot's nav map (listen-only SDK feed via `faces.register_subscriber`) and reads exploration photo descriptions from `AGENT_DATA_DIR/explore/` (read-only); tools `where_am_i`, `exploration_findings`, `show_map` + the `map` skill
 * Model: any OpenAI-compatible endpoint (`UPSTREAM_BASE`/`UPSTREAM_KEY`/`FORCE_MODEL`);
   `LLM_EXTRA_BODY` defaults to `{"enable_thinking": false}` for Qwen.
 
