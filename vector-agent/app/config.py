@@ -20,7 +20,7 @@ ANTHROPIC = LLM_PROVIDER == "anthropic"
 LLM_BASE_URL = _env("UPSTREAM_BASE", "")
 LLM_API_KEY = _env("UPSTREAM_KEY", "")
 ANTHROPIC_API_KEY = _env("ANTHROPIC_API_KEY", "")
-LLM_MODEL = _env("FORCE_MODEL", "claude-opus-5-5" if ANTHROPIC else "qwen3.6-flash")
+LLM_MODEL = _env("FORCE_MODEL", "claude-haiku-5-5" if ANTHROPIC else "qwen3.6-flash")
 # Qwen thinks by default (~5x slower first token); wire-pod can't turn it off, we do.
 LLM_EXTRA_BODY = json.loads(_env("LLM_EXTRA_BODY", '{"enable_thinking": false}'))
 LLM_TEMPERATURE = float(_env("LLM_TEMPERATURE", "0.8"))   # openai provider only (Claude 5.x rejects it)
