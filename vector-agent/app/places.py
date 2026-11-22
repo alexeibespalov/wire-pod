@@ -27,9 +27,9 @@ from typing import Annotated
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from pydantic import Field
 
+from . import llm as llms
 from . import config, explore, navmap
 from .sleep_routine import Ctx, job
 
@@ -37,9 +37,7 @@ log = logging.getLogger("vector-agent")
 _FILE = config.DATA_DIR / "places" / "places.json"
 _lock = threading.Lock()
 
-_llm = ChatOpenAI(model=config.LLM_MODEL, base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY,
-                  temperature=0.1, extra_body=config.LLM_EXTRA_BODY, timeout=60, max_retries=1,
-                  max_tokens=700)
+_llm = llms.chat(temperature=0.1, timeout=60, max_retries=1, max_tokens=700, background=True)
 
 
 # ------------------------------------------------------------------------- storage
@@ -189,10 +187,10 @@ def _parse(text: str) -> dict | None:
 async def decide(known: str, evidence: str) -> dict | None:
     msgs = [SystemMessage(_SYSTEM), HumanMessage(f"KNOWN PLACES\n{known}\n\nEVIDENCE\n{evidence}")]
     try:
-        resp = await _llm.bind(response_format={"type": "json_object"}).ainvoke(msgs)
+        resp = await llms.json_model(_llm).ainvoke(msgs)
     except Exception:
         resp = await _llm.ainvoke(msgs)
-    return _parse(resp.content if isinstance(resp.content, str) else str(resp.content))
+    return _parse(llms.text(resp))
 
 
 def _apply(d: dict, g: dict, r: dict) -> str:

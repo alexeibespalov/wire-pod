@@ -23,9 +23,9 @@ from typing import Annotated
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from pydantic import Field
 
+from . import llm as llms
 from . import activity, config, faces, guard, routines, skills, sleep_routine, turn
 
 log = logging.getLogger("vector-agent")
@@ -36,9 +36,7 @@ MOTION_TOOLS = {"move", "run_maneuver", "tune", "drive"}
 MAX_MINUTES = 30
 MAX_TRIES = 40
 
-_llm = ChatOpenAI(model=config.LLM_MODEL, base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY,
-                  temperature=0.4, extra_body=config.LLM_EXTRA_BODY, timeout=60, max_retries=1,
-                  max_tokens=900)
+_llm = llms.chat(temperature=0.4, timeout=60, max_retries=1, max_tokens=900, background=True)
 
 _session: dict | None = None
 _task: asyncio.Task | None = None
@@ -180,7 +178,7 @@ async def _run(sess: dict) -> None:
             await _wait_until_free(sess)
             res: AIMessage = await llm.ainvoke(_with_cache(_trim(msgs)))
             msgs.append(res)
-            text = str(res.content).strip()
+            text = llms.text(res).strip()
             if text:
                 sess["log"].append(text[:200])
                 sess["log"] = sess["log"][-12:]
@@ -212,7 +210,7 @@ async def _run(sess: dict) -> None:
             res = await _llm.ainvoke(_trim(msgs) + [HumanMessage(
                 "Practice time is over. In two sentences: what did you learn, and which maneuver "
                 "should you use next time?")])
-            summary = str(res.content).strip()[:400]
+            summary = llms.text(res).strip()[:400]
         except Exception:
             summary = "; ".join(sess["log"][-3:])[:400]
     sess["summary"] = summary
@@ -376,11 +374,9 @@ async def review_learning(ctx) -> dict:
     att = "\n".join(f"- {r['time']} {r['maneuver']} args={json.dumps(r.get('args'))} outcome={r.get('outcome')} "
                     f"note={r.get('note')} result={json.dumps(r.get('result'))[:240]}" for r in rows)
     prac = "\n".join(f"- {p['goal']}: {p['summary']}" for p in _history()[-5:]) or "(none)"
-    res = await _llm.ainvoke([HumanMessage(_REVIEW_PROMPT.format(maneuvers=man or "(none)", attempts=att,
-                                                                 practice=prac))],
-                             response_format={"type": "json_object"})
     try:
-        plan = json.loads(str(res.content))
+        plan = await llms.ainvoke_json(_llm, [HumanMessage(_REVIEW_PROMPT.format(
+            maneuvers=man or "(none)", attempts=att, practice=prac))])
     except ValueError:
         return {"error": "review reply wasn't JSON"}
     saved, rejected = [], []

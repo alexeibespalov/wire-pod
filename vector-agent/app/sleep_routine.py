@@ -39,9 +39,9 @@ from typing import Annotated, Awaitable, Callable
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from pydantic import Field
 
+from . import llm as llms
 from . import config, faces
 
 log = logging.getLogger("vector-agent")
@@ -318,16 +318,9 @@ def status_text() -> str:
 
 
 # ============================================================ job 1: analyse exploration photos
-_vlm = ChatOpenAI(
-    model=config.VISION_MODEL,
-    base_url=config.LLM_BASE_URL,
-    api_key=config.LLM_API_KEY,
-    temperature=0.1,
-    extra_body=config.LLM_EXTRA_BODY,
-    timeout=60,
-    max_retries=0,        # retries are ours: failures are re-queued for a later session
-    max_tokens=400,
-)
+_vlm = llms.chat(model=config.VISION_MODEL, temperature=0.1, timeout=60, background=True,
+                 max_retries=0,        # retries are ours: failures are re-queued for a later session
+                 max_tokens=400)
 _json_mode = True         # flips to False if the endpoint rejects response_format
 
 _VLM_SYSTEM = (
@@ -409,7 +402,7 @@ async def _ask_vlm(jpg: bytes) -> dict:
         {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpg).decode()}},
         {"type": "text", "text": "Label this photo as JSON."},
     ])
-    model = _vlm.bind(response_format={"type": "json_object"}) if _json_mode else _vlm
+    model = llms.json_model(_vlm) if _json_mode else _vlm
     try:
         resp = await model.ainvoke([SystemMessage(_VLM_SYSTEM), msg])
     except Exception as e:
@@ -419,7 +412,7 @@ async def _ask_vlm(jpg: bytes) -> dict:
             resp = await _vlm.ainvoke([SystemMessage(_VLM_SYSTEM), msg])
         else:
             raise
-    parsed = parse_vlm(resp.content if isinstance(resp.content, str) else str(resp.content))
+    parsed = parse_vlm(llms.text(resp))
     if parsed is None:
         raise ValueError("unparseable/empty model reply")
     return parsed

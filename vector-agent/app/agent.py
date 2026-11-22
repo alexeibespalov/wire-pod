@@ -14,27 +14,17 @@ import time
 
 from langchain_core.messages import (AIMessage, AnyMessage, HumanMessage, SystemMessage,
                                      ToolMessage)
-from langchain_openai import ChatOpenAI
 from langgraph.config import get_config
 from langgraph.func import entrypoint, task
 from langgraph.graph.message import add_messages
 
-from . import activity, compaction, config, guard, skills, turn
+from . import activity, compaction, config, guard, llm as llms, skills, turn
 from .prompt import build_context, build_system_prompt
 from .tools import TOOLS
 
 MAX_TOOL_RESULT_CHARS = 6000  # keep web results from bloating a small model's context
 
-llm = ChatOpenAI(
-    model=config.LLM_MODEL,
-    base_url=config.LLM_BASE_URL,
-    api_key=config.LLM_API_KEY,
-    temperature=config.LLM_TEMPERATURE,
-    extra_body=config.LLM_EXTRA_BODY,
-    streaming=True,
-    timeout=60,
-    max_retries=1,
-)
+llm = llms.chat(streaming=True, timeout=60, max_retries=1)   # Qwen or Claude: app/llm.py
 
 
 _UNJOURNALED = {"recent_activity", "search_logs", "load_skill", "sense", "list_routines", "list_schedules",
@@ -48,7 +38,7 @@ def _brief(args: dict) -> str:
 
 def _request_text(messages: list[AnyMessage]) -> str:
     """The latest things people said (newest first): context for the safety guard."""
-    said = [str(m.content) for m in reversed(messages) if isinstance(m, HumanMessage)]
+    said = [llms.text(m) for m in reversed(messages) if isinstance(m, HumanMessage)]
     return "\n---\n".join(said[:2])
 
 
@@ -138,17 +128,20 @@ def build_agent(checkpointer, extra_tools: list | None = None):
     tool_names = sorted(tools_by_name)
     _bound: dict[tuple, object] = {}
 
-    def bound(names: list[str]):
-        if not names:
-            return llm                         # time's up: answer without tools
+    def bound(names: list[str], last: tuple = ()):
+        if not names:                          # time's up: answer without tools
+            key = ("<none>", *last)
+            if key not in _bound:
+                _bound[key] = llms.no_tools(llm, [tools_by_name[n] for n in last])
+            return _bound[key]
         key = tuple(names)
         if key not in _bound:
             _bound[key] = llm.bind_tools([tools_by_name[n] for n in names])
         return _bound[key]
 
     @task
-    async def call_model(messages: list[AnyMessage], names: list[str]) -> AIMessage:
-        return await bound(names).ainvoke(messages)
+    async def call_model(messages: list[AnyMessage], names: list[str], last: list[str] | None = None) -> AIMessage:
+        return await bound(names, tuple(last or ())).ainvoke(messages)
 
     @task
     async def call_tool(tool_call: dict, request: str = "", allowed: list[str] | None = None) -> ToolMessage:
@@ -186,16 +179,17 @@ def build_agent(checkpointer, extra_tools: list | None = None):
         t_start = time.monotonic()
         for _ in range(config.MAX_AGENT_STEPS):
             names = active_tool_names(messages, tools_by_name, always)
+            last = names
             ctx_block = build_context()
             if time.monotonic() - t_start > config.TURN_BUDGET_S and turn.channel == "voice":
                 # Vector gives up on a reply after ~25 s (cloud-with-X face): wrap up now
                 names = []
                 ctx_block += ("\n(You've taken a while: answer NOW in one or two sentences with "
                               "what you have; no more tools this turn.)")
-            response = await call_model(for_model(system, messages, ctx_block), names)
+            response = await call_model(for_model(system, messages, ctx_block), names, last)
             if not names and response.tool_calls:
                 # time's up but the model still wants tools: don't run them, just talk
-                response = AIMessage(content=str(response.content or "").strip() or
+                response = AIMessage(content=llms.text(response).strip() or
                                      "That's taking me a while. Give me a second and ask me again?")
             messages = add_messages(messages, [response])
             if not response.tool_calls:
@@ -209,6 +203,6 @@ def build_agent(checkpointer, extra_tools: list | None = None):
             messages = add_messages(messages, [response])
 
         compaction.maybe_compact(thread, messages, llm)   # background, after the turn
-        return entrypoint.final(value=response.content, save=messages)
+        return entrypoint.final(value=llms.text(response), save=messages)
 
     return vector_agent

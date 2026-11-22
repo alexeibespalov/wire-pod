@@ -29,9 +29,9 @@ from typing import Annotated, Any, Literal, Union
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
+from . import llm as llms
 from . import config, faces, guard, robot, turn
 from .speech import clean
 
@@ -278,9 +278,7 @@ async def _call_tool(name: str, args: dict, ctx: RunCtx) -> str:
     return res
 
 
-_llm = ChatOpenAI(model=config.LLM_MODEL, base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY,
-                  temperature=0.7, extra_body=config.LLM_EXTRA_BODY, timeout=45, max_retries=1,
-                  max_tokens=300)
+_llm = llms.chat(temperature=0.7, timeout=45, max_retries=1, max_tokens=300)
 
 _BG_SYSTEM = """\
 You are Vector, a small curious robot in a family home (kids included). You're doing \
@@ -310,7 +308,7 @@ async def _think(prompt: str, ctx: RunCtx) -> str:
             HumanMessage(f"EARLIER RUNS:\n{_history_text(ctx)}\n\nTHIS RUN SO FAR:\n"
                          + ("\n".join(ctx.log) or "(nothing yet)") + f"\n\nNOW: {prompt}")]
     res = await _llm.ainvoke(msgs)
-    return str(res.content).strip()
+    return llms.text(res).strip()
 
 
 async def run_steps(steps: list[Step], ctx: RunCtx) -> RunCtx:
@@ -368,7 +366,7 @@ async def run_instruction(instruction: str, ctx: RunCtx, max_steps: int = 4) -> 
         res: AIMessage = await llm.ainvoke([_cached(msgs[0]), *msgs[1:]])   # system + tools cached
         msgs.append(res)
         if not res.tool_calls:
-            final = str(res.content).strip()
+            final = llms.text(res).strip()
             break
         for tc in res.tool_calls:
             out = await _call_tool(tc["name"], tc["args"], ctx)

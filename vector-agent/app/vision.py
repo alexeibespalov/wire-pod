@@ -6,21 +6,12 @@ from typing import Annotated, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from pydantic import Field
 
+from . import llm as llms
 from . import config, robot
 
-_vision = ChatOpenAI(
-    model=config.VISION_MODEL,
-    base_url=config.LLM_BASE_URL,
-    api_key=config.LLM_API_KEY,
-    temperature=0.2,
-    extra_body=config.LLM_EXTRA_BODY,
-    timeout=45,
-    max_retries=1,
-    max_tokens=220,
-)
+_vision = llms.chat(model=config.VISION_MODEL, temperature=0.2, timeout=45, max_retries=1, max_tokens=220)
 
 _EYES = (
     "You are the eyes of Vector, a palm-sized desk robot. The image comes from his "
@@ -78,4 +69,4 @@ async def look(question: Annotated[str, Field(description=
         {"type": "text", "text": f"Question: {question}"},
     ])
     resp = await _vision.ainvoke([SystemMessage(_EYES), msg])
-    return f"(camera, {time.time()-t0:.1f}s) {resp.content}"
+    return f"(camera, {time.time()-t0:.1f}s) {llms.text(resp)}"

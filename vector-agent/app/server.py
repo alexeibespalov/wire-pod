@@ -25,6 +25,7 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
+from . import llm as llms
 from . import activity, body, explore_capture, faces, guard, library, memory, navmap, practice, scheduler, sleep_routine, turn
 from .audio import PLAYER
 
@@ -321,8 +322,8 @@ async def chat_completions(request: Request):
                         for tc in msg.tool_call_chunks or []:
                             if tc.get("name"):
                                 step_tools.add(tc["name"])
-                        if isinstance(msg.content, str) and msg.content:
-                            step_text.append(msg.content)
+                        if piece := llms.text(msg):   # str (Qwen) or text blocks (Claude)
+                            step_text.append(piece)
                     elif mode == "updates":
                         for node, val in data.items():
                             if node == "call_model":  # a model step finished: decide what to say

@@ -24,7 +24,7 @@ from datetime import datetime
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 
-from . import config, sleep_routine
+from . import config, llm as llms, sleep_routine
 
 log = logging.getLogger("vector-agent")
 
@@ -50,7 +50,10 @@ or two. Most recent things last. At most {words} words. No preamble."""
 
 
 def _text(m: AnyMessage) -> str:
-    c = m.content if isinstance(m.content, str) else json.dumps(m.content)
+    # spoken text only: Claude's content blocks carry thinking signatures that aren't
+    # conversation (and would make the history look far longer than it is)
+    c = llms.text(m) if isinstance(m, AIMessage) else (
+        m.content if isinstance(m.content, str) else json.dumps(m.content))
     if isinstance(m, AIMessage) and m.tool_calls:
         c += " " + json.dumps([{"name": t["name"], "args": t["args"]} for t in m.tool_calls])
     return c
@@ -115,10 +118,10 @@ def _render(msgs: list[AnyMessage]) -> str:
     out = []
     for m in msgs:
         if isinstance(m, HumanMessage):
-            out.append(f"HUMAN {m.content}")
+            out.append(f"HUMAN {llms.text(m)}")
         elif isinstance(m, AIMessage):
-            if m.content:
-                out.append(f"VECTOR: {m.content}")
+            if said := llms.text(m):
+                out.append(f"VECTOR: {said}")
             for t in m.tool_calls or []:
                 out.append(f"  [Vector used {t['name']} {json.dumps(t['args'], ensure_ascii=False)[:200]}]")
         elif isinstance(m, ToolMessage):
@@ -154,7 +157,7 @@ async def _compact(thread: str, messages: list[AnyMessage], llm, keep: int | Non
             SystemMessage(SUMMARY_PROMPT.format(words=config.SUMMARY_WORDS)),
             HumanMessage(f"NOTES SO FAR:\n{notes}\n\nNEXT PART OF THE TRANSCRIPT:\n{_render(old)}"),
         ])
-        summary = str(res.content).strip()
+        summary = llms.text(res).strip()
         if not summary:
             raise ValueError("empty summary")
         _save_entry(thread, {"summary": summary, "upto": old[-1].id,
@@ -296,21 +299,20 @@ async def harvest_memories(ctx) -> dict:
         if (e := _load().get(thread)) and e.get("summary"):
             notes.append(e["summary"])
         for m in saved:
-            if m.id in seen or not isinstance(m, (HumanMessage, AIMessage)) or not isinstance(m.content, str):
+            if m.id in seen or not isinstance(m, (HumanMessage, AIMessage)):
                 continue
             new_ids.append(m.id)
-            if m.content.strip():
-                lines.append(memory.speaker_line(m.content)[:500] if isinstance(m, HumanMessage)
-                             else f"VECTOR: {m.content.strip()[:400]}")
+            if said := llms.text(m).strip():
+                lines.append(memory.speaker_line(said)[:500] if isinstance(m, HumanMessage)
+                             else f"VECTOR: {said[:400]}")
     today = datetime.now(config.TIMEZONE).strftime("%A %-d %B %Y")
 
     def listing():
         return "\n".join(f"{i + 1}. {f['fact']}" for i, f in enumerate(memory._load())) or "(none yet)"
 
     async def ask(prompt: str) -> dict:
-        res = await memory._llm().ainvoke([HumanMessage(prompt)], response_format={"type": "json_object"})
         try:
-            d = json.loads(str(res.content))
+            d = await llms.ainvoke_json(memory._llm(), [HumanMessage(prompt)])
             return d if isinstance(d, dict) else {}
         except ValueError:
             return {}

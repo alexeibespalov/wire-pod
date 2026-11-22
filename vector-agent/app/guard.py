@@ -23,9 +23,8 @@ import re
 import time
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 
-from . import activity, config
+from . import activity, config, llm as llms
 
 log = logging.getLogger("vector-agent")
 
@@ -77,9 +76,8 @@ NEVER_JUDGE = {"sense", "battery_status", "recent_activity", "search_logs", "lis
                "load_skill", "forget", "forget_skill", "delete_routine", "delete_maneuver",
                "which_place", "sleep_routine_status", "recent_exploration_finds", "record_attempt"}
 
-_judge = ChatOpenAI(model=config.LLM_MODEL, base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY,
-                    temperature=0, extra_body=config.LLM_EXTRA_BODY, timeout=8, max_retries=1,
-                    max_tokens=160)
+# Claude thinks before answering even at low effort, so it gets a little more time.
+_judge = llms.chat(temperature=0, timeout=14 if config.ANTHROPIC else 8, max_retries=1, max_tokens=160)
 
 _ACTION_PROMPT = f"""\
 You are the safety guard of Vector, a small home robot (palm-sized, wheels, a lift arm, a \
@@ -115,9 +113,7 @@ def _short(v, n: int = 600) -> str:
 
 async def _ask(system: str, user: str) -> dict | None:
     try:
-        res = await _judge.ainvoke([SystemMessage(system), HumanMessage(user)],
-                                   response_format={"type": "json_object"})
-        d = json.loads(str(res.content))
+        d = await llms.ainvoke_json(_judge, [SystemMessage(system), HumanMessage(user)])
         return d if isinstance(d, dict) and "allow" in d else None
     except Exception as e:
         log.warning("guard: judge unavailable (%s)", e)

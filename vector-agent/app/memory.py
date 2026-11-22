@@ -105,10 +105,8 @@ _writer = None
 def _llm():
     global _writer
     if _writer is None:
-        from langchain_openai import ChatOpenAI
-        _writer = ChatOpenAI(model=config.LLM_MODEL, base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY,
-                             temperature=0, extra_body=config.LLM_EXTRA_BODY, timeout=45, max_retries=1,
-                             max_tokens=900)
+        from . import llm as llms
+        _writer = llms.chat(temperature=0, timeout=45, max_retries=1, max_tokens=900)
     return _writer
 
 
@@ -140,12 +138,11 @@ async def reflect(said: str, reply: str) -> list[str]:
         facts = _load()
     listing = "\n".join(f"{i + 1}. {f['fact']}" for i, f in enumerate(facts)) or "(none yet)"
     today = datetime.now(config.TIMEZONE).strftime("%A %-d %B %Y")
-    res = await _llm().ainvoke([HumanMessage(_WRITER_PROMPT.format(
-        today=today, facts=listing, said=speaker_line(said)[-800:],
-        reply=re.sub(r"\{\{[^}]*\}\}", "", reply)[-600:]))],
-        response_format={"type": "json_object"})
+    from . import llm as llms
     try:
-        plan = json.loads(str(res.content))
+        plan = await llms.ainvoke_json(_llm(), [HumanMessage(_WRITER_PROMPT.format(
+            today=today, facts=listing, said=speaker_line(said)[-800:],
+            reply=re.sub(r"\{\{[^}]*\}\}", "", reply)[-600:]))])
     except ValueError:
         return []
     return apply_plan(plan)
