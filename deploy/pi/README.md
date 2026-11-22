@@ -44,3 +44,10 @@ server_config points at `192.168.1.39:8443` (IP mode; the router doesn't relay m
 * After wire-pod's SSH bot setup, Vector's login token is wiped: re-activate over BLE at
   https://wp.pvic.xyz (click ACTIVATE only, never flash its firmware).
 * Double-pressing Vector's button **off** the charger toggles mic mute (persists across reboots).
+
+## Exploration photos / sleep routine (vector-agent)
+
+The agent's `/data/explore` (host: `~/wire-pod/agent-data/explore/`) holds photos Vector takes
+while exploring (`photos/`, `captures.jsonl`) and the night-time VLM analysis (`analyses.jsonl`).
+Disk is capped by `EXPLORE_MAX_PHOTOS` (default 500, about 15-30 MB). Both features are tunable
+via the optional env vars in `.env.example` and need no change to the compose file.

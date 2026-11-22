@@ -47,6 +47,8 @@ class VectorExecutor(AgentExecutor):
                                              history=[msg]))
         updater = TaskUpdater(event_queue=event_queue, task_id=task_id, context_id=context_id)
         text = (context.get_user_input() or "").strip()
+        from . import sleep_routine
+        sleep_routine.note_activity()
         if not text:
             await updater.add_artifact(parts=[Part(text="(empty message)")], name="reply", last_chunk=True)
             await updater.complete()

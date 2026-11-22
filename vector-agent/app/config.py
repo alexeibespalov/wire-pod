@@ -59,6 +59,34 @@ TIMEZONE = ZoneInfo(_env("AGENT_TZ", "Europe/London"))
 # Where Vector lives: default for weather/local questions. Set in the Pi's .env (kept out of git).
 HOME_LOCATION = os.environ.get("AGENT_LOCATION", "").strip()
 
+# --- Exploration photos (app/explore_capture.py): snap the camera when his own exploring
+# behaviour meets an obstacle/object. Listen-only, never takes behaviour control.
+EXPLORE_DIR = DATA_DIR / "explore"          # photos/, captures.jsonl, analyses.jsonl
+EXPLORE_CAPTURE = _env("EXPLORE_CAPTURE", "1") == "1"
+EXPLORE_PROX_MM = int(_env("EXPLORE_PROX_MM", "110"))              # "object close" threshold
+EXPLORE_PROX_MIN_QUALITY = float(_env("EXPLORE_PROX_MIN_QUALITY", "0.02"))  # ignore noise (idle ~0.01)
+EXPLORE_PROX_COOLDOWN_S = float(_env("EXPLORE_PROX_COOLDOWN_S", "20"))
+EXPLORE_OBJECT_COOLDOWN_S = float(_env("EXPLORE_OBJECT_COOLDOWN_S", "60"))  # per object
+EXPLORE_MIN_INTERVAL_S = float(_env("EXPLORE_MIN_INTERVAL_S", "6"))         # any two photos
+EXPLORE_MAX_PER_HOUR = int(_env("EXPLORE_MAX_PER_HOUR", "60"))
+EXPLORE_MAX_PHOTOS = int(_env("EXPLORE_MAX_PHOTOS", "500"))        # disk cap: newest N kept
+EXPLORE_MOVING_GRACE_S = float(_env("EXPLORE_MOVING_GRACE_S", "8"))  # still "exploring" this long after last motion
+
+# --- Sleep routine (app/sleep_routine.py): chores done while he sleeps, never waking him.
+SLEEP_ROUTINE = _env("SLEEP_ROUTINE", "1") == "1"
+SLEEP_CALM_SECONDS = float(_env("SLEEP_CALM_SECONDS", "120"))      # calm power mode this long = asleep
+SLEEP_QUIET_MINUTES = float(_env("SLEEP_QUIET_MINUTES", "10"))     # and no conversation for this long
+SLEEP_FALLBACK = _env("SLEEP_FALLBACK", "1") == "1"                # on charger + idle (+ night) = asleep
+SLEEP_FALLBACK_IDLE_MINUTES = float(_env("SLEEP_FALLBACK_IDLE_MINUTES", "30"))
+SLEEP_FALLBACK_NIGHT_ONLY = _env("SLEEP_FALLBACK_NIGHT_ONLY", "1") == "1"
+SLEEP_NIGHT_START = int(_env("SLEEP_NIGHT_START", "22"))           # local hour (AGENT_TZ)
+SLEEP_NIGHT_END = int(_env("SLEEP_NIGHT_END", "7"))
+SLEEP_SESSION_BUDGET_S = float(_env("SLEEP_SESSION_BUDGET_S", "1200"))
+SLEEP_MIN_INTERVAL_MIN = float(_env("SLEEP_MIN_INTERVAL_MIN", "20"))  # between sessions
+SLEEP_VLM_BATCH = int(_env("SLEEP_VLM_BATCH", "25"))               # photos analysed per session
+SLEEP_VLM_DELAY_S = float(_env("SLEEP_VLM_DELAY_S", "2"))          # rate limit between calls
+SLEEP_VLM_MAX_ATTEMPTS = int(_env("SLEEP_VLM_MAX_ATTEMPTS", "3"))
+
 # --- A2A (Agent2Agent) server: lets other agents talk to Vector. Disabled unless a token is set.
 A2A_TOKEN = os.environ.get("A2A_TOKEN", "").strip()
 A2A_HOST = _env("A2A_HOST", "0.0.0.0")

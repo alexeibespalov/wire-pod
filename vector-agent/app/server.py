@@ -23,7 +23,7 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
-from . import faces, turn
+from . import explore_capture, faces, sleep_routine, turn
 
 log = logging.getLogger("vector-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -116,6 +116,9 @@ def _user_text(body: dict) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    explore_capture.bind_loop(asyncio.get_running_loop())
+    explore_capture.start()  # photos when his own exploring meets obstacles/objects (hooks faces' SDK link)
+    sleep_routine.start()    # night-time chores while he sleeps (registers its hook before faces.start)
     faces.start()  # background listen-only SDK connection for face presence
     mcp = await load_mcp_tools()
     async with AsyncSqliteSaver.from_conn_string(str(config.DATA_DIR / "checkpoints.sqlite")) as saver:
@@ -144,6 +147,7 @@ def _chunk(cid: str, model: str, content: str | None = None, finish: str | None 
 async def chat_completions(request: Request):
     body = await request.json()
     text = _fix_transcript(_user_text(body))
+    sleep_routine.note_activity()
     followup = _is_followup(body)
     stream = bool(body.get("stream"))
     model = config.LLM_MODEL
