@@ -106,6 +106,15 @@ MAX_PLAY_MINUTES = int(_env("MAX_PLAY_MINUTES", "180"))
 MAX_MIDI_MINUTES = int(_env("MAX_MIDI_MINUTES", "10"))
 SOUNDFONT = _env("SOUNDFONT", "/usr/share/sounds/sf2/TimGM6mb.sf2")
 
+# --- Known places (app/places.py): which surface is he on? decided while he sleeps
+PLACE_MIN_PHOTOS = int(_env("PLACE_MIN_PHOTOS", "3"))          # described photos needed per stay
+PLACE_GROUP_GAP_H = float(_env("PLACE_GROUP_GAP_H", "3"))      # a gap this long splits a stay
+PLACE_MATCH_CONF = float(_env("PLACE_MATCH_CONF", "0.75"))     # >= this: it's that place
+PLACE_PROBABLE_CONF = float(_env("PLACE_PROBABLE_CONF", "0.5"))  # >= this: probably it (never a new place)
+PLACE_CONFIRM_SIGHTINGS = int(_env("PLACE_CONFIRM_SIGHTINGS", "2"))  # provisional -> confirmed
+PLACE_PROVISIONAL_DAYS = float(_env("PLACE_PROVISIONAL_DAYS", "7"))  # unconfirmed one-offs expire
+PLACES_MAX = int(_env("PLACES_MAX", "20"))
+
 # --- Persistent log file (agent-data/logs/agent.log, rotating)
 LOG_MAX_BYTES = int(_env("LOG_MAX_BYTES", str(5 * 1024 * 1024)))
 LOG_BACKUPS = int(_env("LOG_BACKUPS", "4"))

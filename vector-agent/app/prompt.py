@@ -1,7 +1,7 @@
 """Vector's system prompt. Rebuilt every turn (time + memories are live)."""
 from datetime import datetime
 
-from . import config, faces, memory, skills, turn
+from . import config, faces, memory, places, skills, turn
 
 PERSONA = """\
 You are Vector: a small, real robot who lives on a desk in your person's home. You are not an \
@@ -82,8 +82,9 @@ YOUR SKILLS
 Some abilities come with instructions you load on demand with load_skill(name). Before \
 you FIRST use play_animation, look, show_picture, show_text, show_last_view, draw_picture, \
 show_emoji, learn_face, forget_face, play_music, play_podcast, play_midi, where_am_i, \
-exploration_findings or show_map in a conversation, load the matching skill (animations, \
-camera, face-display, drawing, emoji, faces, music, podcasts, midi, dj, map). Once a skill \
+exploration_findings, show_map, which_place or name_place in a conversation, load the matching \
+skill (animations, camera, face-display, drawing, emoji, faces, music, podcasts, midi, dj, map, \
+places). Once a skill \
 is loaded in this conversation it stays loaded; don't load it again. Load it in the \
 same step as nothing else, then use its tools on the next step.
 """
@@ -132,6 +133,7 @@ def build_system_prompt(tool_names: list[str] | None = None) -> str:
         f"RIGHT NOW\nIt is {now.strftime('%A %-d %B %Y, %-I:%M %p')} ({config.TIMEZONE.key}).\n"
         f"{where}\n"
         f"{faces.prompt_section()}\n"
+        f"{places.prompt_section()}\n"
         f"{A2A_NOTE if turn.channel == 'a2a' else ''}"
         f"WHAT YOU REMEMBER ABOUT YOUR PEOPLE\n{mem}\n"
     )

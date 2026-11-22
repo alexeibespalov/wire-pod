@@ -43,3 +43,15 @@ Deploy with `deploy/pi/deploy.sh` (builds the image on the Pi).
   deleted past `EXPLORE_MAX_PHOTOS`, but their `captures.jsonl` lines stay, so check the file exists.
 * Tools: `recent_exploration_finds`, `set_exploration_capture`, `sleep_routine_status`,
   `run_sleep_routine_now`; skill `exploration`. Config vars: see `deploy/pi/.env.example`.
+
+## Known places (`app/places.py`, skill `places`)
+
+Which surface is Vector on (office desk, kitchen table, floor)? His firmware forgets space on
+every reboot/pick-up, so places are recognised at the conversation layer while he sleeps:
+captures sharing a pose origin form a "stay"; the `identify_places` sleep job (after the VLM
+photo analysis) asks the LLM whether a stay matches a known place, using photo descriptions,
+their relative positions and the nav-map summary. Different surfaces in one room are
+different places. Anti-flood: >= 0.75 confidence = match, 0.5-0.75 = probable match (never a
+new place), below = provisional place, confirmed by a second stay or by the human naming it
+(`name_place`); unconfirmed one-offs expire after 7 days; capped at 20. Store:
+`agent-data/places/places.json`. The prompt gets a one-line WHERE YOU ARE.
