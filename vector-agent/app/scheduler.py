@@ -12,9 +12,11 @@ camera looks are budgeted per hour (app/routines.py), and a schedule that keeps 
 is stopped. Background speech: at most one remark per SCHEDULE_SPEECH_GAP_S per schedule,
 never while someone is talking to him.
 
-hold_still: keeps Vector's behaviour control (wire-pod /api-sdk) between runs so he doesn't
-wander off what he's watching. Dropped on the wake word / a voice turn, re-taken at the
-next run, released when the schedule ends.
+hold_still: keeps Vector's behaviour control between runs so he doesn't wander off what
+he's watching, on the agent's own SDK connection (body.pin_control), so the camera aims in
+between re-use it instead of releasing it. Re-taken at each run (a voice turn may have
+overridden it), released when the last hold_still schedule ends; the loop also releases
+a pin that no active schedule needs any more.
 """
 import asyncio
 import contextvars
@@ -29,7 +31,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from pydantic import Field
 
-from . import activity, config, faces, robot, routines, turn
+from . import activity, body, config, faces, routines, turn
 
 log = logging.getLogger("vector-agent")
 
@@ -109,8 +111,9 @@ async def _ensure_hold() -> None:
     if _held or turn.lock().locked():
         return
     try:
-        await robot.sdk("assume_behavior_control", priority="default")
-        _held = _took_hold = True
+        _took_hold = True
+        await body.pin_control()
+        _held = True
         log.info("schedule: holding still (behaviour control)")
     except Exception as e:
         log.warning("schedule: couldn't hold still: %s", e)
@@ -124,7 +127,7 @@ async def _release_hold() -> None:
         return
     _held = _took_hold = False
     try:
-        await robot.sdk("release_behavior_control")
+        await body.unpin_control()
         log.info("schedule: released behaviour control")
     except Exception as e:
         log.warning("schedule: release failed: %s", e)
@@ -200,6 +203,10 @@ async def _tick_forever() -> None:
     while True:
         try:
             now = time.time()
+            if body.control_pinned() and not any(x.get("hold_still") for x in active()):
+                log.warning("schedule: control still pinned with no hold_still schedule; releasing")
+                await _release_hold()
+                await body.unpin_control()
             for s in active():
                 if s.get("until") and now > s["until"] and s["id"] not in _running:
                     s["status"] = "done"

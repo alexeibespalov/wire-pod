@@ -58,7 +58,13 @@
       "back to your charger",
       "back to your home",
       "go to your home",
-      "back on your charger"
+      "back on your charger",
+      "charging dock",
+      "your dock",
+      "on your charger",
+      "to your charger",
+      "on the charger",
+      "charging station"
     ],
     "requiresexact": false
   },

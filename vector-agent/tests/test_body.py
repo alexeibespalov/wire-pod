@@ -608,3 +608,92 @@ def test_borrow_probe_falls_back_to_taking_control(monkeypatch):
     monkeypatch.setitem(sys.modules, "anki_vector.connection", fake_conn)
     asyncio.run(t.acquire())
     assert calls == ["request"] and t._have_control and not t.borrow
+
+
+# ------------------------------------------------- pinned control (hold_still schedules)
+class _Conn:
+    """Fake SDK connection: request_control futures are resolved by the test."""
+    def __init__(self, auto=True):
+        import concurrent.futures
+        self._cf = concurrent.futures
+        self.auto, self.calls, self.pending = auto, [], []
+
+    def request_control(self, *_a, **_k):
+        f = self._cf.Future()
+        self.calls.append("request")
+        if self.auto:
+            f.set_result(None)
+        else:
+            self.pending.append(f)
+        return f
+
+    def release_control(self, *_a, **_k):
+        f = self._cf.Future()
+        f.set_result(None)
+        self.calls.append("release")
+        return f
+
+
+@pytest.fixture
+def fake_sdk(monkeypatch):
+    import types
+    fake = types.ModuleType("anki_vector")
+    fake_conn = types.ModuleType("anki_vector.connection")
+
+    class ControlPriorityLevel:
+        DEFAULT_PRIORITY = 20
+    fake_conn.ControlPriorityLevel = ControlPriorityLevel
+    monkeypatch.setitem(sys.modules, "anki_vector", fake)
+    monkeypatch.setitem(sys.modules, "anki_vector.connection", fake_conn)
+    conn = _Conn()
+
+    class R:
+        pass
+    R.conn = conn
+    from app import faces
+    monkeypatch.setattr(faces, "get_robot", lambda: R)
+    monkeypatch.setattr(body._Pin, "on", False)
+    return conn
+
+
+def test_pinned_control_survives_batches_until_unpinned(fake_sdk):
+    async def go():
+        await body.pin_control()
+        t = body.GrpcTransport()
+        await t.acquire()
+        await t.release()                        # a camera aim ends: must NOT free him
+        assert fake_sdk.calls == ["request", "request"]
+        await body.unpin_control()
+        assert fake_sdk.calls[-1] == "release" and not body.control_pinned()
+    run(go())
+
+
+def test_late_grant_after_unpin_is_released(fake_sdk):
+    """Schedule cancelled while the pin request is still on its way (the frozen case)."""
+    fake_sdk.auto = False
+
+    async def go():
+        task = asyncio.create_task(body.pin_control())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        await body.unpin_control()
+        n = fake_sdk.calls.count("release")
+        fake_sdk.pending[0].set_result(None)     # the robot grants it now
+        await asyncio.sleep(0.05)
+        assert fake_sdk.calls.count("release") == n + 1
+    run(go())
+
+
+def test_cancelled_acquire_still_releases(fake_sdk):
+    fake_sdk.auto = False
+
+    async def go():
+        t = body.GrpcTransport()
+        task = asyncio.create_task(t.acquire())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await t.release()
+        assert fake_sdk.calls[-1] == "release"
+    run(go())

@@ -384,6 +384,50 @@ class _Linger:
         cls.task = None
 
 
+class _Pin:
+    """Behaviour control held on purpose between motions (a hold_still schedule, e.g.
+    watching the TV). Held on OUR SDK connection, the same one camera aims use: holding it
+    through wire-pod's /api-sdk instead was undone by every aim (our request took the slot,
+    our release then freed him), so he wandered off the TV between looks (2026-11-22)."""
+    on = False
+    since = 0.0
+
+
+def control_pinned() -> bool:
+    return _Pin.on
+
+
+async def pin_control() -> None:
+    """Take (or re-take, e.g. after a voice turn) behaviour control and keep it until
+    unpin_control(); batches in between don't release it."""
+    from anki_vector.connection import ControlPriorityLevel
+    from . import faces
+    r = faces.get_robot()
+    if r is None:
+        raise BodyError("my body connection is down")
+    if not _Pin.on:
+        _Pin.since = time.time()
+    _Pin.on = True
+    fut = r.conn.request_control(ControlPriorityLevel.DEFAULT_PRIORITY, timeout=8.0)
+    loop = asyncio.get_running_loop()
+
+    def granted(f) -> None:
+        # unpinned (schedule cancelled) while the request was still on its way: give the
+        # late grant straight back, or nobody would and he'd stand frozen
+        if not f.cancelled() and f.exception() is None and not _Pin.on:
+            loop.call_soon_threadsafe(lambda: loop.create_task(GrpcTransport()._release_now()))
+    fut.add_done_callback(granted)
+    await asyncio.shield(asyncio.wrap_future(fut))
+
+
+async def unpin_control() -> None:
+    if not _Pin.on:
+        return
+    _Pin.on = False
+    await GrpcTransport()._release_now()
+    log.info("body: released pinned control (held %.0fs)", time.time() - _Pin.since)
+
+
 async def release_lingering_control() -> None:
     """Hand control back now (e.g. the voice turn is over)."""
     t = _Linger.transport
@@ -447,6 +491,11 @@ class GrpcTransport(Transport):
         r = self._robot()
         try:
             await asyncio.wrap_future(r.conn.request_control(ControlPriorityLevel.DEFAULT_PRIORITY, timeout=8.0))
+        except asyncio.CancelledError:
+            # The request may already be on its way and be granted after we stop waiting:
+            # let cleanup release it, or nobody ever would (he'd stand frozen).
+            self._have_control = True
+            raise
         except Exception as e:
             raise BodyError(f"couldn't get control of my body ({type(e).__name__})") from e
         self._have_control = True
@@ -476,6 +525,8 @@ class GrpcTransport(Transport):
         if not self._have_control:
             return
         self._have_control = False
+        if _Pin.on:                 # a hold_still schedule keeps it (unpin_control releases)
+            return
         if CONTROL_LINGER_S > 0:
             _Linger.start(self, CONTROL_LINGER_S)
         else:

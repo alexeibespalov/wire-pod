@@ -24,7 +24,11 @@ SPEC = [
     ("intent_system_charger", False, ["go to your charger", "go to the charger", "find your charger",
                                       "go home", "go charge", "go to charger", "base station",
                                       "your base", "go back home", "back to your charger",
-                                      "back to your home", "go to your home", "back on your charger"]),
+                                      "back to your home", "go to your home", "back on your charger",
+                                      # before sleep: "go to sleep on your charging dock" must
+                                      # go home, not sleep where he stands (2026-11-22)
+                                      "charging dock", "your dock", "on your charger",
+                                      "to your charger", "on the charger", "charging station"]),
     ("intent_system_sleep", False, ["go to sleep"]),
     ("intent_system_sleep", True, ["sleep"]),
     ("intent_system_noaudio", True, ["[blank_audio]", "[door opens]", "[sighs]"]),

@@ -198,12 +198,19 @@ func betterTranscript(device string, pcm []byte, voskText string) string {
 	case err != nil:
 		fmt.Printf("(Bot %s) Whisper failed after %.1fs (%v); using Vosk\n", device, took, err)
 		return voskText
-	case voskEmpty && (whisperGhost.MatchString(text) || len(strings.Fields(text)) < 5):
+	case voskEmpty:
+		// Vosk catches real speech aimed at him, even badly. When it hears nothing, Whisper's
+		// text is noise or a TV in the background ("I'm comfortable. We have to go back."
+		// cancelled his TV watching, 2026-11-22), however long it is.
 		if text != "" {
 			fmt.Printf("(Bot %s) Whisper heard %q where Vosk heard nothing; treating as silence\n", device, text)
 		}
 		return ""
-	case text == "":
+	case strings.ContainsAny(text, "♪♫"):
+		// music (TV, radio): Whisper writes lyrics; Vosk's guess is no better, so drop it
+		fmt.Printf("(Bot %s) Whisper heard music %q (Vosk: %q); treating as silence\n", device, text, voskText)
+		return ""
+	case text == "" || whisperGhost.MatchString(text):
 		return voskText
 	}
 	fmt.Printf("(Bot %s) Whisper (%.1fs): %q | Vosk: %q\n", device, took, text, voskText)
