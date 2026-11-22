@@ -31,6 +31,16 @@ _status = "not started"
 _robot = None                    # the live SDK connection (shared with the audio player)
 
 
+_subscribers: list = []          # fn(robot) called on every (re)connect, in the SDK thread
+
+
+def register_subscriber(fn) -> None:
+    """Let other modules hook the shared listen-only SDK connection (e.g. subscribe to
+    events, start feeds). Called with the connected anki_vector.Robot on every
+    (re)connect, from the face-watcher thread; keep it quick and don't take control."""
+    _subscribers.append(fn)
+
+
 def get_robot():
     """The connected listen-only Vector SDK robot, or None if not connected right now."""
     return _robot if _status == "watching" else None
@@ -66,6 +76,11 @@ def _watch_forever() -> None:
                 r.events.subscribe(on_face, Events.robot_observed_face)
                 r.events.subscribe(on_id_changed, Events.robot_changed_observed_face_id)
                 r.events.subscribe(on_wake_word, Events.wake_word)
+                for fn in list(_subscribers):
+                    try:
+                        fn(r)
+                    except Exception as e:
+                        log.warning("faces: subscriber %s failed: %s", getattr(fn, "__name__", fn), e)
                 _robot = r
                 _status = "watching"
                 log.info("faces: listening for Vector's face recognition events")
