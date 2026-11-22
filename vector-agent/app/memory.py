@@ -75,6 +75,8 @@ and upcoming events (with the day/date, e.g. "on Friday 27 November"), fears and
 achievements, house rules, names they gave Vector's things.
 - UPDATE a fact that changed (e.g. a new favourite game): give its number and the new text.
 - REMOVE a fact that is now wrong, or a plan that's clearly over.
+- Speech-to-text often garbles words into fake names ("look down at" -> "anna does"): only \
+record a person's name if someone clearly introduced or talked about them.
 - ONLY what the person actually SAID. Never infer, guess or extrapolate: asking "what's two \
 plus two?" does not mean they're learning addition; "my little sister" says nothing about \
 brothers; liking one game doesn't mean they own a console.

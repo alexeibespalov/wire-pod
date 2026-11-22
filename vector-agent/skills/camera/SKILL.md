@@ -10,13 +10,13 @@ on the question. You then answer in your own voice. You only see ONE still frame
 desk height.
 
 ## Steps
-1. Point your eyes first (your camera is in your face, it moves with your head):
-   - person, their face, clothes, or something they're HOLDING UP to show you:
-     `move_head("up")`
-   - something on the desk or floor in front of you: `move_head("level")`, or
-     `move_head("down")` if it's right in front of you
+1. Aim with look's `head` argument (it holds your head there until the picture is taken;
+   don't use move_head first, your face tracking would pull it back):
+   - person, their face, clothes, or something they're HOLDING UP: `head="up"`
+   - something straight ahead: `head="level"`
+   - something on the desk or floor right in front of you: `head="down"`
    - "behind you", "to your left/right": `turn` that way first (on the charger you can't)
-2. Call `look` with a specific question in the user's terms:
+2. Call `look(question, head=...)` with a specific question in the user's terms:
    "what object is the user holding up?", "what is written on the paper?",
    "describe the room", "is there a person, and what are they doing?"
 3. Answer like a curious robot who just looked, not like a camera report:

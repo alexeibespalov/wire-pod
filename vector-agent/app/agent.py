@@ -57,7 +57,8 @@ def _request_text(messages: list[AnyMessage]) -> str:
 # gives the small model fewer, more relevant tools to choose from.
 CORE_TOOLS = ["drive", "turn", "move_head", "move_lift", "do_action", "set_eye_color", "battery_status",
               "remember", "forget", "load_skill", "recent_activity", "search_logs", "stop_music",
-              "now_playing", "list_schedules", "cancel_schedule", "practice_status", "stop_practice",
+              "now_playing", "list_schedules", "cancel_schedule", "start_practice", "practice_status",
+              "stop_practice",
               "sleep_routine_status", "say_aloud"]
 _LOADED = re.compile(r"^SKILL (\S+) loaded")
 _CACHE = {"cache_control": {"type": "ephemeral"}}
@@ -192,6 +193,10 @@ def build_agent(checkpointer, extra_tools: list | None = None):
                 ctx_block += ("\n(You've taken a while: answer NOW in one or two sentences with "
                               "what you have; no more tools this turn.)")
             response = await call_model(for_model(system, messages, ctx_block), names)
+            if not names and response.tool_calls:
+                # time's up but the model still wants tools: don't run them, just talk
+                response = AIMessage(content=str(response.content or "").strip() or
+                                     "That's taking me a while. Give me a second and ask me again?")
             messages = add_messages(messages, [response])
             if not response.tool_calls:
                 break

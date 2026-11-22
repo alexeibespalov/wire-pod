@@ -246,10 +246,11 @@ async def start_practice(
                                                "about 10 cm forward without losing it (dribble)'")],
         minutes: Annotated[float, Field(description="How long, default 10, max 30")] = 10,
         max_tries: Annotated[int, Field(description="Max physical tries, default 20, max 40")] = 20) -> str:
-    """Practise a PHYSICAL skill on your own in the background: try, measure, adjust, save
-    maneuvers, repeat. Use when someone says "practise ...", "learn to ...", "get better at
-    ...", or after a move didn't work well. You pause when someone talks to you. Load the
-    'body-learning' skill first."""
+    """Practise a PHYSICAL skill on your own in the background: look, try, measure, adjust,
+    save maneuvers, repeat. Use STRAIGHT AWAY (no looking or moving first; the session does
+    that itself) when someone says "practise ...", "learn to push/kick/...", "get better at
+    ...". Then just tell them in a few words that you'll practise. You pause whenever
+    someone talks to you."""
     if active():
         return f"error: I'm already practising: {_session['goal']} (stop_practice first)"
     goal = " ".join(goal.split())[:300]

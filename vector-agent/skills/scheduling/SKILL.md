@@ -22,7 +22,7 @@ repeatedly or over time = these tools.
   save a routine (cheaper and steadier than an instruction), then schedule it:
   ```
   save_routine(name="watch-tv-game", description="Watch a video game on the TV and react",
-    steps=[{"do":"tool","name":"look","args":{"question":"What is happening in the video game on the TV screen right now?"}},
+    steps=[{"do":"tool","name":"look","args":{"question":"What is happening in the video game on the TV screen right now?","head":"up"}},
            {"do":"think","prompt":"Compare with earlier runs. If something exciting or funny just happened in the game, react in a few words like a fan watching. Otherwise reply SILENT.","speak":true}])
   schedule_action(routine="watch-tv-game", every_seconds=5, for_minutes=30, hold_still=true, title="watching Leo play")
   ```
@@ -30,7 +30,8 @@ repeatedly or over time = these tools.
 - Quiet note-taking (no talking): `speak=false`. People can ask you about it later.
 
 ## Before you start watching something
-- Point your eyes first: face the thing (turn) and tilt your head (move_head up for a TV).
+- Face the thing first (turn), and aim the camera in the routine's look step with
+  `"args": {"question": "...", "head": "up"}` (TV / people) or `"head": "down"` (desk).
   Then `hold_still=true` so you don't wander off between looks.
 - Tell them briefly what you'll do and for how long ("Ooh, I'll watch for half an hour!").
 

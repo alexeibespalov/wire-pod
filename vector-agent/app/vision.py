@@ -1,7 +1,8 @@
 """Camera + multimodal model: Vector looks, the vision model describes what matters."""
+import asyncio
 import base64
 import time
-from typing import Annotated
+from typing import Annotated, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
@@ -32,15 +33,39 @@ _EYES = (
 )
 
 
+_HEAD = {"up": 35.0, "level": 0.0, "down": -20.0}
+
+
+async def _frame_with_head(head: str) -> bytes:
+    """Aim the head and take the picture while still holding control: released in
+    between, his face tracking swings the head straight back to whoever is in front."""
+    from . import body
+    async with body.ENGINE.batch(f"look {head}") as b:
+        await b.head(_HEAD[head])
+        await asyncio.sleep(0.5)               # let the image settle
+        return await robot.camera_frame()
+
+
 @tool
 async def look(question: Annotated[str, Field(description=
-        "What you want to know about the view, in the user's terms, e.g. 'what is the user holding up?'")]) -> str:
+        "What you want to know about the view, in the user's terms, e.g. 'what is the user holding up?'")],
+        head: Annotated[Literal["as is", "up", "level", "down"], Field(description=
+            "Where to point your head for this picture: up = faces / things held up, level = "
+            "straight ahead, down = things on the desk or floor right in front of you")] = "as is") -> str:
     """Take a picture with Vector's camera and get a description focused on `question`.
-    Load the 'camera' skill first. Point your head the right way BEFORE calling this
-    (move_head up for faces and held-up objects, level for things on the desk)."""
+    Load the 'camera' skill first. Use `head` to aim (it stays aimed until the picture is
+    taken); don't call move_head first."""
     t0 = time.time()
     try:
-        jpg = await robot.camera_frame()
+        if head != "as is":
+            try:
+                jpg = await _frame_with_head(head)
+            except Exception as e:             # body busy / on charger quirks: still look
+                if "camera" in str(e).lower():
+                    raise
+                jpg = await robot.camera_frame()
+        else:
+            jpg = await robot.camera_frame()
     except Exception as e:
         return (f"error: my camera gave no picture ({type(e).__name__}). In low-power mode "
                 f"(asleep / resting on the charger) the camera is off: wake up first.")

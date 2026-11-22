@@ -55,7 +55,8 @@ POLL_S = 0.04          # governor poll period while a motion runs
 SETTLE_S = 0.25        # wait (at most) this long for a fresh state sample after a motion
 ACTION_TIMEOUT_S = _f("BODY_ACTION_TIMEOUT_S", 35)
 BORROW_PROBE_S = _f("BODY_BORROW_PROBE_S", 2.0)
-STRAY_WHEEL_MMPS = _f("BODY_STRAY_WHEEL_MMPS", 25)  # wheels this fast during a head/lift/wait step = abort    # no-op action must return this fast under control  # one gRPC action (a 300 mm crawl fits)
+STRAY_WHEEL_MMPS = _f("BODY_STRAY_WHEEL_MMPS", 25)
+CONTROL_LINGER_S = _f("BODY_CONTROL_LINGER_S", 0.0)   # >0: keep control after a motion (off: may block his speech)  # keep control this long after a motion  # wheels this fast during a head/lift/wait step = abort    # no-op action must return this fast under control  # one gRPC action (a 300 mm crawl fits)
 TURN_SPEED_DPS = 100.0   # assumed turn rate (deg/s) for dry-run/timeouts
 HEAD_MIN_DEG, HEAD_MAX_DEG = -22.0, 45.0
 LIFT_MIN_MM, LIFT_MAX_MM = 32.0, 92.0
@@ -350,6 +351,47 @@ def _next_tag() -> int:
     return protocol.FIRST_SDK_TAG + span // 2 + (next(_tag_counter) % (span // 2 - 1))
 
 
+class _Linger:
+    """Control kept briefly after a gRPC motion batch (see GrpcTransport.release)."""
+    task: asyncio.Task | None = None
+    transport: "GrpcTransport | None" = None
+
+    @classmethod
+    def start(cls, transport: "GrpcTransport", seconds: float) -> None:
+        cls.cancel()
+        cls.transport = transport
+
+        async def later():
+            await asyncio.sleep(seconds)
+            t, cls.transport, cls.task = cls.transport, None, None
+            if t is not None:
+                await t._release_now()
+        cls.task = asyncio.get_running_loop().create_task(later())
+
+    @classmethod
+    def take(cls) -> bool:
+        if cls.task is not None and not cls.task.done():
+            cls.task.cancel()
+            cls.task, cls.transport = None, None
+            return True
+        return False
+
+    @classmethod
+    def cancel(cls) -> None:
+        if cls.task is not None and not cls.task.done():
+            cls.task.cancel()
+        cls.task = None
+
+
+async def release_lingering_control() -> None:
+    """Hand control back now (e.g. the voice turn is over)."""
+    t = _Linger.transport
+    _Linger.cancel()
+    _Linger.transport = None
+    if t is not None:
+        await t._release_now()
+
+
 class GrpcTransport(Transport):
     """Raw gRPC on the shared listen-only SDK connection (bypasses requires_control; we hold
     control ourselves). Control uses the connection's own BehaviorControl stream: it is
@@ -379,6 +421,9 @@ class GrpcTransport(Transport):
         return await asyncio.wrap_future(r.conn.run_coroutine(make_coro(r)))
 
     async def acquire(self) -> None:
+        if _Linger.take():          # still holding control from the last motion
+            self._have_control = True
+            return
         if self.borrow:
             self._robot()          # still fail fast if the connection is down
             if await self._probe_borrow():
@@ -414,9 +459,18 @@ class GrpcTransport(Transport):
             return False
 
     async def release(self) -> None:
+        """Keep control for CONTROL_LINGER_S after a motion: released at once, his idle
+        behaviours (face tracking!) move the head straight back, so 'look down, then look'
+        photographed the person instead of the desk. The next batch re-uses the control."""
         if not self._have_control:
             return
         self._have_control = False
+        if CONTROL_LINGER_S > 0:
+            _Linger.start(self, CONTROL_LINGER_S)
+        else:
+            await self._release_now()
+
+    async def _release_now(self) -> None:
         try:
             r = self._robot()
             # The SDK waits for a "control lost" event that this robot never sends after a
