@@ -258,7 +258,7 @@ def describe(what: str = "all") -> str:
                  f"head={s['head_deg']:.0f}deg lift={s['lift_mm']:.0f}mm "
                  f"wheels={s['wheel_l']:.0f}/{s['wheel_r']:.0f}mmps "
                  f"pitch={s['pitch_deg']:.0f}deg" +
-                 (f" tilt={s['tilt_deg']:.0f}deg" if s["tilt_deg"] is not None else "") +
+                 "" +
                  f" map_id={s['origin_id']}"),
         "distance": (f"prox_mm={s['prox_mm']} quality={s['prox_quality']:.2f} "
                      f"object_ahead={yn(s['prox_found'])} lift_blocks_sensor={yn(s['prox_lift'])}"),
@@ -661,7 +661,8 @@ class Batch:
                 raise BodyError("my body connection is down")
             s = FEED.snapshot()
             if s["age_s"] is None or s["age_s"] > BODY_STALE_S:
-                raise BodyError("my sensors aren't updating")
+                raise BodyError("my sensors aren't updating right now (reconnecting; try again "
+                                "in a few seconds, don't retry straight away)")
             hazard = self._hazard(s, preflight=True)
             if hazard:
                 raise BodyError(f"stopped: {hazard}")
@@ -708,8 +709,9 @@ class Batch:
             return "cliff detected"
         if abs(s["pitch_deg"]) > BODY_MAX_PITCH_DEG:
             return "tilted too far"
-        if s["tilt_deg"] is not None and s["tilt_deg"] > BODY_MAX_TILT_DEG:
-            return "tilted too far"
+        # NB: no accelerometer tilt check: Vector's IMU is in his HEAD (head angle reads as
+        # tilt) and his own turning acceleration skews it; aborted harmless turns on the
+        # robot. pose pitch (body, from the robot) + firmware picked-up/falling/cliff do it.
         if preflight:
             return None
         if s["age_s"] is None or s["age_s"] > BODY_STALE_S:

@@ -21,6 +21,8 @@ from . import config, robot
 log = logging.getLogger("vector-agent")
 
 PRESENT_SECONDS = 20       # a face seen within this window counts as "here now"
+STATE_STALE_RECONNECT_S = 15  # no robot_state this long = the event stream died: reconnect
+_last_state = [0.0]
 SPEAKER_SECONDS = 6        # a face seen this recently may be the one talking
 KNOWN_REFRESH_SECONDS = 60
 
@@ -68,6 +70,9 @@ def _watch_forever() -> None:
             if old:
                 _seen[int(event.new_id)] = old
 
+    def on_state(*_a, **_k):
+        _last_state[0] = time.time()
+
     def on_wake_word(_robot, _type, event, *_a, **_k):
         # firmware won't stream the mic to wire-pod while our audio plays: pause it
         if event.WhichOneof("wake_word_type") == "wake_word_begin":
@@ -85,6 +90,8 @@ def _watch_forever() -> None:
                 r.events.subscribe(on_face, Events.robot_observed_face)
                 r.events.subscribe(on_id_changed, Events.robot_changed_observed_face_id)
                 r.events.subscribe(on_wake_word, Events.wake_word)
+                r.events.subscribe(on_state, Events.robot_state)
+                _last_state[0] = time.time()
                 for fn in list(_subscribers):
                     try:
                         fn(r)
@@ -94,15 +101,32 @@ def _watch_forever() -> None:
                 _status = "watching"
                 log.info("faces: listening for Vector's face recognition events")
                 backoff = 5
+                next_refresh = 0.0
                 while True:
-                    _refresh_known_sync(r)
-                    time.sleep(KNOWN_REFRESH_SECONDS)
+                    if time.time() >= next_refresh:
+                        _refresh_known_sync(r)
+                        next_refresh = time.time() + KNOWN_REFRESH_SECONDS
+                    # Vector sometimes closes the event stream ("EventStream: event channel
+                    # closed"); the SDK doesn't notice, so the link looks alive but no state
+                    # arrives. No robot_state for a while = reconnect.
+                    if time.time() - _last_state[0] > STATE_STALE_RECONNECT_S:
+                        raise ConnectionError(f"no robot state for {STATE_STALE_RECONNECT_S:.0f}s "
+                                              f"(event stream closed?)")
+                    time.sleep(2)
         except Exception as e:
             _robot = None
             _status = f"disconnected ({type(e).__name__})"
-            log.warning("faces: SDK connection lost (%s); retrying in %ss", e, backoff)
-            time.sleep(backoff)
-            backoff = min(backoff * 2, 120)
+            stale = isinstance(e, ConnectionError) and "no robot state" in str(e)
+            wait = 1 if stale else backoff
+            log.warning("faces: SDK connection lost (%s); reconnecting in %ss", e, wait)
+            try:
+                from . import activity
+                activity.record("body", f"lost my live connection to my body ({e}); reconnecting")
+            except Exception:
+                pass
+            time.sleep(wait)
+            if not stale:
+                backoff = min(backoff * 2, 120)
 
 
 def _refresh_known_sync(r) -> None:

@@ -56,6 +56,9 @@ KEEP_TOKENS = int(_env("KEEP_TOKENS", "8000"))
 SUMMARY_WORDS = int(_env("SUMMARY_WORDS", "400"))
 SLEEP_KEEP_TOKENS = int(_env("SLEEP_KEEP_TOKENS", "2500"))  # overnight: fold down to a short tail
 MAX_AGENT_STEPS = int(_env("MAX_AGENT_STEPS", "6"))
+# Vector abandons a voice request after ~25 s (cloud-with-X face): past this, the agent
+# stops calling tools and answers with what it has.
+TURN_BUDGET_S = float(_env("TURN_BUDGET_S", "14"))
 # Keep listening after a reply (no "Hey Vector" needed for follow-ups):
 #   always    = after every spoken reply, except when a built-in routine was started
 #   questions = only when the reply ends with a question

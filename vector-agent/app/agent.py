@@ -10,6 +10,7 @@ memory; `entrypoint.final(save=...)` stores the updated history.
 import asyncio
 import json
 import re
+import time
 
 from langchain_core.messages import (AIMessage, AnyMessage, HumanMessage, SystemMessage,
                                      ToolMessage)
@@ -137,6 +138,8 @@ def build_agent(checkpointer, extra_tools: list | None = None):
     _bound: dict[tuple, object] = {}
 
     def bound(names: list[str]):
+        if not names:
+            return llm                         # time's up: answer without tools
         key = tuple(names)
         if key not in _bound:
             _bound[key] = llm.bind_tools([tools_by_name[n] for n in names])
@@ -179,9 +182,16 @@ def build_agent(checkpointer, extra_tools: list | None = None):
         system = SystemMessage(build_system_prompt(tool_names, summary))
 
         response = None
+        t_start = time.monotonic()
         for _ in range(config.MAX_AGENT_STEPS):
             names = active_tool_names(messages, tools_by_name, always)
-            response = await call_model(for_model(system, messages, build_context()), names)
+            ctx_block = build_context()
+            if time.monotonic() - t_start > config.TURN_BUDGET_S and turn.channel == "voice":
+                # Vector gives up on a reply after ~25 s (cloud-with-X face): wrap up now
+                names = []
+                ctx_block += ("\n(You've taken a while: answer NOW in one or two sentences with "
+                              "what you have; no more tools this turn.)")
+            response = await call_model(for_model(system, messages, ctx_block), names)
             messages = add_messages(messages, [response])
             if not response.tool_calls:
                 break
