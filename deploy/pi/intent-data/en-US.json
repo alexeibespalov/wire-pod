@@ -51,7 +51,14 @@
       "find your charger",
       "go home",
       "go charge",
-      "go to charger"
+      "go to charger",
+      "base station",
+      "your base",
+      "go back home",
+      "back to your charger",
+      "back to your home",
+      "go to your home",
+      "back on your charger"
     ],
     "requiresexact": false
   },
@@ -186,13 +193,20 @@
     "name": "intent_imperative_backup",
     "keyphrases": [
       "back up",
-      "go back",
       "move back",
       "back off",
       "go backwards",
       "move backwards"
     ],
     "requiresexact": false
+  },
+  {
+    "name": "intent_imperative_backup",
+    "keyphrases": [
+      "go back",
+      "back"
+    ],
+    "requiresexact": true
   },
   {
     "name": "intent_imperative_come",

@@ -22,7 +22,9 @@ SPEC = [
     ("intent_imperative_eyecolor", False, ["eye color", "eye colour"]),
     ("intent_explore_start", False, ["start exploring", "go exploring", "go explore"]),
     ("intent_system_charger", False, ["go to your charger", "go to the charger", "find your charger",
-                                      "go home", "go charge", "go to charger"]),
+                                      "go home", "go charge", "go to charger", "base station",
+                                      "your base", "go back home", "back to your charger",
+                                      "back to your home", "go to your home", "back on your charger"]),
     ("intent_system_sleep", False, ["go to sleep"]),
     ("intent_system_sleep", True, ["sleep"]),
     ("intent_system_noaudio", True, ["[blank_audio]", "[door opens]", "[sighs]"]),
@@ -41,7 +43,8 @@ SPEC = [
     ("intent_imperative_turnaround", False, ["turn around"]),
     ("intent_imperative_turnleft", False, ["turn left", "go left"]),
     ("intent_imperative_turnright", False, ["turn right", "go right"]),
-    ("intent_imperative_backup", False, ["back up", "go back", "move back", "back off", "go backwards", "move backwards"]),
+    ("intent_imperative_backup", False, ["back up", "move back", "back off", "go backwards", "move backwards"]),
+    ("intent_imperative_backup", True, ["go back", "back"]),  # bare only: "go back to X" is not backing up
     ("intent_imperative_come", False, ["come here", "come to me"]),
     ("intent_imperative_lookatme", False, ["look at me"]),
     # --- cube / tricks / games
