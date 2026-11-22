@@ -25,12 +25,17 @@ CONTROL_TOOLS = {"drive", "turn", "move_head", "move_lift", "do_action", "play_a
 
 import asyncio
 import contextlib
+import re
 import time
 
 channel = "voice"          # "voice" (wire-pod, spoken) or "a2a" (remote agent, text)
 wirepod_has_control = False
 followup = False          # knowledge-graph path: wire-pod loops a "searching" animation
 lead_in_at: float = 0.0   # when we sent the short spoken lead-in (stops that loop)
+# Robot actions queue behind his speech: a head move sent while he's saying "Let me see."
+# waits until he's done. speech_until = when the words sent so far should be finished, so
+# the body engine doesn't mistake "still talking" for "wire-pod isn't holding control".
+speech_until: float = 0.0
 LEAD_IN_SECONDS = 2.0     # time to let the lead-in be spoken before using the face
 # Built-in behaviours (fist bump, tricks, cube games) start only as the ANSWER to Vector's
 # voice request. After "Hey Vector" (not follow-up listening) that answer is still unsent
@@ -71,11 +76,12 @@ async def hold(wait_s: float):
 
 
 def reset(is_followup: bool = False, via: str = "voice", voice_turn: bool = False) -> None:
-    global wirepod_has_control, followup, lead_in_at, channel, intent_slot_open, pending_intent
+    global wirepod_has_control, followup, lead_in_at, channel, intent_slot_open, pending_intent, speech_until
     channel = via
     wirepod_has_control = is_followup
     followup = is_followup
     lead_in_at = 0.0
+    speech_until = 0.0
     intent_slot_open = voice_turn and via == "voice" and not is_followup
     pending_intent = ""
 
@@ -100,6 +106,25 @@ def mark_wirepod_control() -> None:
     global wirepod_has_control, intent_slot_open
     wirepod_has_control = True
     intent_slot_open = False  # he has spoken: the voice request is answered
+
+
+def mark_speech(text: str) -> None:
+    """Words were just sent to wire-pod: estimate when he'll have finished saying them
+    (wire-pod starts with a short get-in animation; he speaks ~2.5 words a second)."""
+    global speech_until
+    words = len(re.sub(r"\{\{[^}]*\}\}", " ", text or "").split())
+    if not words:
+        return
+    now = time.time()
+    start = speech_until if speech_until > now else now + 0.8
+    speech_until = start + 0.3 + words / 2.5
+
+
+async def wait_for_speech(max_s: float = 8.0) -> None:
+    """Wait (bounded) until the words already sent should have been spoken."""
+    remaining = min(speech_until - time.time(), max_s)
+    if remaining > 0:
+        await asyncio.sleep(remaining)
 
 
 def mark_lead_in() -> None:

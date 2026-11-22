@@ -31,3 +31,18 @@ def test_slot_closes_at_turn_end():
     turn.reset(is_followup=False, voice_turn=True)
     turn.close_intent_slot()
     assert not turn.claim_intent("intent_play_fistbump")
+
+
+def test_speech_estimate_queues_back_to_back():
+    import time
+    turn.reset(is_followup=False, voice_turn=True)
+    t0 = time.time()
+    turn.mark_speech("Let me see.")                        # ~0.8 get-in + 0.3 + 3 words / 2.5
+    first = turn.speech_until - t0
+    assert 1.5 < first < 3.5
+    turn.mark_speech("{{playAnimationWI||happy}}")         # cues aren't words
+    assert turn.speech_until - t0 == first
+    turn.mark_speech("Hmm, I can't quite make it out.")   # queued after the first sentence
+    assert turn.speech_until - t0 > first + 2
+    turn.reset()
+    assert turn.speech_until == 0.0

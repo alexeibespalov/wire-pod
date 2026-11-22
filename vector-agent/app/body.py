@@ -427,8 +427,18 @@ class GrpcTransport(Transport):
             return
         if self.borrow:
             self._robot()          # still fail fast if the connection is down
+            from . import turn as turn_state
+            # Actions queue behind his speech: probing while he's still saying the lead-in
+            # ("Let me see.") times out and would wrongly take control, cutting off the
+            # rest of his answer. Wait until the words sent so far are spoken, then probe;
+            # one more try before deciding wire-pod really isn't holding control.
+            await turn_state.wait_for_speech()
             if await self._probe_borrow():
                 return
+            if turn_state.channel == "voice" and turn_state.wirepod_has_control:
+                await asyncio.sleep(1.5)
+                if await self._probe_borrow():
+                    return
             # Nobody actually holds control (wire-pod finished talking, or no voice turn at
             # all): actions would hang while his own behaviours drive him around. Take it.
             log.info("body: wire-pod isn't holding control after all; taking it")

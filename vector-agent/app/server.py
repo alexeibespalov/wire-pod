@@ -306,6 +306,7 @@ async def chat_completions(request: Request):
                         log.info("[%s] first words after %.2fs", thread, time.time() - t0)
                     said.append(piece)
                     turn.mark_wirepod_control()  # wire-pod takes control at the first words
+                    turn.mark_speech(piece)      # his body is busy talking until about then
                     return _chunk(cid, model, piece)
                 return None
 
