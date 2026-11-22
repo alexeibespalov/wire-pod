@@ -180,6 +180,7 @@ async def chat_completions(request: Request):
     text = _fix_transcript(_user_text(body))
     sleep_routine.note_activity()
     followup = _is_followup(body)
+    eyes = faces.speaker_note()  # who's in front of him as the words arrive
     stream = bool(body.get("stream"))
     model = config.LLM_MODEL
     cid = "chatcmpl-" + uuid.uuid4().hex
@@ -196,7 +197,7 @@ async def chat_completions(request: Request):
         async with turn.lock():  # shared with A2A: one robot, one turn at a time
             thread = _thread_id()
             cfg = {"configurable": {"thread_id": thread}}
-            log.info("[%s] user: %s", thread, text)
+            log.info("[%s] user: %s %s", thread, eyes, text)
             t0, said, final, tools_used = time.time(), [], None, set()
             PLAYER.turn_started()
             turn.reset(is_followup=followup)  # follow-up: wire-pod holds the robot from the start
@@ -218,7 +219,7 @@ async def chat_completions(request: Request):
                 return None
 
             try:
-                async for mode, data in STATE["agent"].astream(text, cfg, stream_mode=["messages", "updates"]):
+                async for mode, data in STATE["agent"].astream(f"{eyes}\n{text}", cfg, stream_mode=["messages", "updates"]):
                     if mode == "messages":
                         msg, meta = data
                         # Only the agent's own model call speaks. Model calls made INSIDE

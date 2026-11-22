@@ -21,6 +21,7 @@ from . import config, robot
 log = logging.getLogger("vector-agent")
 
 PRESENT_SECONDS = 20       # a face seen within this window counts as "here now"
+SPEAKER_SECONDS = 6        # a face seen this recently may be the one talking
 KNOWN_REFRESH_SECONDS = 60
 
 _lock = threading.Lock()
@@ -53,8 +54,13 @@ def _watch_forever() -> None:
     from anki_vector.events import Events
 
     def on_face(_robot, _type, event, *_a, **_k):
+        try:
+            area = int(event.img_rect.width) * int(event.img_rect.height)
+        except Exception:
+            area = 0
         with _lock:
-            _seen[int(event.face_id)] = {"name": event.name or "", "last": time.time()}
+            _seen[int(event.face_id)] = {"name": (event.name or "").strip().title(),
+                                         "last": time.time(), "area": area}
 
     def on_id_changed(_robot, _type, event, *_a, **_k):  # face merged into a known id
         with _lock:
@@ -101,7 +107,7 @@ def _refresh_known_sync(r) -> None:
     try:
         names = r.faces.request_enrolled_names()
         with _lock:
-            _known = sorted({f.name for f in names.faces if f.name})
+            _known = sorted({f.name.strip().title() for f in names.faces if f.name})
             _known_at = time.time()
     except Exception as e:
         log.warning("faces: couldn't read enrolled names (%s)", e)
@@ -122,6 +128,34 @@ def present() -> tuple[list[str], int]:
     return names, unknown
 
 
+def speaker_note() -> str:
+    """Who his eyes say is in front of him as the words arrive. Stamped onto each voice
+    message in the conversation thread, so the history records who said what when
+    several people (kids!) take turns. Best guess = the biggest (closest) face seen in
+    the last few seconds; anyone else seen recently is 'also nearby'."""
+    if _status != "watching":
+        return "(eyes: face recognition offline, can't tell who's talking)"
+    now = time.time()
+    with _lock:
+        recent = [v for v in _seen.values() if now - v["last"] <= SPEAKER_SECONDS]
+        around = [v for v in _seen.values() if now - v["last"] <= PRESENT_SECONDS]
+    if not recent:
+        if not around:
+            return "(eyes: no face in view, can't tell who's talking)"
+        names = sorted({v["name"] for v in around if v["name"]})
+        who = ", ".join(names) if names else "someone you don't know"
+        return f"(eyes: no face in view right now; seen in the last few seconds: {who})"
+    # among the faces seen most recently, the biggest one is the closest person
+    newest = max(v["last"] for v in recent)
+    front = max((v for v in recent if newest - v["last"] <= 1.5), key=lambda v: v.get("area", 0))
+    lead = f"{front['name']} is right in front of you" if front["name"] else \
+        "someone you don't know by face is right in front of you"
+    others = sorted({v["name"] for v in around if v["name"] and v["name"] != front["name"]})
+    strangers = sum(1 for v in around if not v["name"] and v is not front)
+    extra = others + ([f"{strangers} face(s) you don't know"] if strangers else [])
+    return f"(eyes: {lead}" + (f"; also nearby: {', '.join(extra)})" if extra else ")")
+
+
 def prompt_section() -> str:
     names, unknown = present()
     with _lock:
@@ -131,8 +165,7 @@ def prompt_section() -> str:
     elif names and unknown:
         here = (f"You can see {', '.join(names)} right now, plus {unknown} face(s) you don't know.")
     elif names:
-        here = (f"You can see {', '.join(names)} right now (your own face recognition). "
-                f"Assume you're talking to {names[0] if len(names) == 1 else 'one of them'}.")
+        here = f"You can see {', '.join(names)} right now (your own face recognition)."
     elif unknown:
         here = "You can see someone right now, but you don't know their face yet."
     else:

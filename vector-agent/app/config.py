@@ -47,7 +47,7 @@ DATA_DIR = Path(_env("AGENT_DATA_DIR", "/data"))
 # (same host folder bind-mounted into both containers).
 FACE_DIR = DATA_DIR / "face"
 FACE_DIR_IN_WIREPOD = _env("FACE_DIR_IN_WIREPOD", "/face")
-THREAD_IDLE_MINUTES = float(_env("THREAD_IDLE_MINUTES", "10"))
+THREAD_IDLE_MINUTES = float(_env("THREAD_IDLE_MINUTES", "180"))
 MAX_HISTORY_MESSAGES = int(_env("MAX_HISTORY_MESSAGES", "40"))
 MAX_AGENT_STEPS = int(_env("MAX_AGENT_STEPS", "6"))
 # Keep listening after a reply (no "Hey Vector" needed for follow-ups):
