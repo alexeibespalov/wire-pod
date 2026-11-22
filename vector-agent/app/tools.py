@@ -18,6 +18,7 @@ from .animations import play_animation
 from .draw import draw_picture
 from .emoji import show_emoji
 from .faces import forget_face, learn_face
+from .music_tools import MUSIC_TOOLS
 from .face import show_last_view, show_picture, show_text
 from .robot import sdk as _sdk
 from .skills import load_skill
@@ -190,7 +191,7 @@ def forget(about: str) -> str:
 TOOLS = [drive, turn, move_head, move_lift, do_action, set_eye_color, battery_status,
          remember, forget,
          load_skill, play_animation, look, show_picture, show_text, show_last_view, draw_picture,
-         show_emoji, learn_face, forget_face]
+         show_emoji, learn_face, forget_face, *MUSIC_TOOLS]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
 

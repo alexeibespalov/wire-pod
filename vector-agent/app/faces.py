@@ -28,11 +28,17 @@ _seen: dict[int, dict] = {}      # face_id -> {"name": str, "last": float}
 _known: list[str] = []           # enrolled names
 _known_at = 0.0
 _status = "not started"
+_robot = None                    # the live SDK connection (shared with the audio player)
+
+
+def get_robot():
+    """The connected listen-only Vector SDK robot, or None if not connected right now."""
+    return _robot if _status == "watching" else None
 
 
 # ---------------------------------------------------------------- background watcher
 def _watch_forever() -> None:
-    global _status
+    global _status, _robot
     import anki_vector
     from anki_vector.events import Events
 
@@ -53,6 +59,7 @@ def _watch_forever() -> None:
                                    enable_face_detection=True, cache_animation_lists=False) as r:
                 r.events.subscribe(on_face, Events.robot_observed_face)
                 r.events.subscribe(on_id_changed, Events.robot_changed_observed_face_id)
+                _robot = r
                 _status = "watching"
                 log.info("faces: listening for Vector's face recognition events")
                 backoff = 5
@@ -60,6 +67,7 @@ def _watch_forever() -> None:
                     _refresh_known_sync(r)
                     time.sleep(KNOWN_REFRESH_SECONDS)
         except Exception as e:
+            _robot = None
             _status = f"disconnected ({type(e).__name__})"
             log.warning("faces: SDK connection lost (%s); retrying in %ss", e, backoff)
             time.sleep(backoff)

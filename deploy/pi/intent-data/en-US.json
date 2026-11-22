@@ -428,9 +428,6 @@
   {
     "name": "intent_imperative_quiet",
     "keyphrases": [
-      "quiet",
-      "be quiet",
-      "stop",
       "hush"
     ],
     "requiresexact": true

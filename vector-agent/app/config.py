@@ -66,6 +66,13 @@ A2A_PORT = int(_env("A2A_PORT", "8095"))
 A2A_PUBLIC_URL = _env("A2A_PUBLIC_URL", f"http://127.0.0.1:{A2A_PORT}").rstrip("/")
 A2A_ALLOW_CAMERA = _env("A2A_ALLOW_CAMERA", "0") == "1"
 
+# --- Music / podcasts / MIDI
+MUSIC_DIR = _env("MUSIC_DIR", "/media/Music")      # read-only mount of the NAS music share
+MAX_QUEUE = int(_env("MAX_QUEUE", "60"))
+MAX_PLAY_MINUTES = int(_env("MAX_PLAY_MINUTES", "180"))
+MAX_MIDI_MINUTES = int(_env("MAX_MIDI_MINUTES", "10"))
+SOUNDFONT = _env("SOUNDFONT", "/usr/share/sounds/sf2/TimGM6mb.sf2")
+
 # --- Persistent log file (agent-data/logs/agent.log, rotating)
 LOG_MAX_BYTES = int(_env("LOG_MAX_BYTES", str(5 * 1024 * 1024)))
 LOG_BACKUPS = int(_env("LOG_BACKUPS", "4"))

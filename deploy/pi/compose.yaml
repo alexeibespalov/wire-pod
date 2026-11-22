@@ -65,6 +65,14 @@ services:
       # the ini points the cert at /opt/.anki_vector, so mount it there too
       - ./data/anki_vector:/home/agent/.anki_vector:ro
       - ./data/anki_vector:/opt/.anki_vector:ro
+      # NAS music (the Pi's existing CIFS automount of the OMV share), read-only.
+      # rslave so the automount (it idles out after 60s) propagates into the container.
+      - type: bind
+        source: /mnt/shared_media
+        target: /media
+        read_only: true
+        bind:
+          propagation: rslave
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)"]
       interval: 30s

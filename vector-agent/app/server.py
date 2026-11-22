@@ -23,7 +23,8 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
-from . import faces, turn
+from . import faces, library, turn
+from .audio import PLAYER
 
 def _setup_file_log() -> None:
     """Keep the agent's own log (conversations, tools, presence, errors) on the data
@@ -48,6 +49,7 @@ _setup_file_log()
 STATE = {"agent": None}
 _THREAD_FILE = config.DATA_DIR / "thread.json"
 _CUE = re.compile(r"\{\{.*?\}\}")
+_QUIET_STEP_TOOLS = {"play_music", "play_podcast", "play_midi", "stop_music", "load_skill"}
 _SEARCH_FILLERS = [
     "{{playAnimationWI||thinking}} Ooh, let me look that up. ",
     "{{playAnimationWI||thinking}} One sec, checking the internet. ",
@@ -80,6 +82,15 @@ def _thread_id() -> str:
     t["last"] = now
     _THREAD_FILE.write_text(json.dumps(t))
     return t["id"]
+
+
+_STOP = re.compile(r"^(?:please\s+)?(?:stop|pause|enough|quiet|be quiet|shush|turn it off|"
+                   r"stop (?:the |that )?(?:music|song|podcast|playing|it)|"
+                   r"music off|that's enough)(?:\s+please)?[.!]*$", re.I)
+
+
+def _is_stop(text: str) -> bool:
+    return bool(_STOP.match(text.strip()))
 
 
 _NOISE_WORDS = {"", "the", "a", "an", "uh", "um", "hmm", "huh", "ah", "oh", "and", "it", "i"}
@@ -134,6 +145,7 @@ def _user_text(body: dict) -> str:
 async def lifespan(app: FastAPI):
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     faces.start()  # background listen-only SDK connection for face presence
+    library.start()  # index the NAS music library (cached)
     mcp = await load_mcp_tools()
     async with AsyncSqliteSaver.from_conn_string(str(config.DATA_DIR / "checkpoints.sqlite")) as saver:
         STATE["agent"] = build_agent(saver, mcp)
@@ -218,6 +230,9 @@ async def chat_completions(request: Request):
                                 san = Sanitizer()
                                 text_out = san.feed("".join(step_text)) + san.flush()
                                 uses_control = bool(step_tools & turn.CONTROL_TOOLS)
+                                # music: playback starts after the reply, so narration
+                                # around these calls ("let me try again...") is just noise
+                                quiet_step = uses_control or bool(step_tools & _QUIET_STEP_TOOLS)
                                 if not step_tools:
                                     out = speak(text_out)                      # the answer
                                 elif uses_control and turn.followup and not said:
@@ -225,7 +240,7 @@ async def chat_completions(request: Request):
                                     # short lead-in; the face is used once it's spoken
                                     out = speak(random.choice(_LEAD_INS))
                                     turn.mark_lead_in()
-                                elif uses_control:
+                                elif quiet_step:
                                     out = None                                 # act first, talk after
                                 elif text_out.strip():
                                     out = speak(text_out)                      # preamble before a search
@@ -257,7 +272,7 @@ async def chat_completions(request: Request):
             # listening after he speaks so follow-ups don't need "Hey Vector".
             full = "".join(said)
             spoken = _CUE.sub("", full).strip()
-            routine = bool(tools_used & {"do_action", "learn_face"})  # don't listen while he dances etc.
+            routine = bool(tools_used & {"do_action", "learn_face"}) or PLAYER.has_pending()  # don't listen while he dances etc.
             if config.FOLLOW_UP_MODE == "always":
                 want = bool(spoken) and not routine
             elif config.FOLLOW_UP_MODE == "questions":
@@ -271,8 +286,22 @@ async def chat_completions(request: Request):
             log.info("[%s] vector (%.2fs): %s", thread, time.time() - t0, "".join(said))
             yield _chunk(cid, model, None, "stop")
             yield "data: [DONE]\n\n"
+            # Music/podcast queued this turn: start once he's said his (short) reply.
+            if PLAYER.has_pending():
+                PLAYER.kick(2.0 + len(spoken) / 12)
 
-    gen = silent_end() if _is_silence(text) else run_stream()
+    async def stop_fast():
+        # "stop" while music plays: no LLM round-trip, just stop it
+        await PLAYER.stop()
+        log.info("fast stop: %r", text)
+        yield _chunk(cid, model, "{{playAnimationWI||happy}} Okay, music off.")
+        yield _chunk(cid, model, None, "stop")
+        yield "data: [DONE]\n\n"
+
+    if _is_stop(text) and (PLAYER.is_playing() or PLAYER.has_pending()):
+        gen = stop_fast()
+    else:
+        gen = silent_end() if _is_silence(text) else run_stream()
     if stream:
         return StreamingResponse(gen, media_type="text/event-stream")
 

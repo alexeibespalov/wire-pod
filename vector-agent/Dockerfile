@@ -4,6 +4,7 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
 WORKDIR /srv
 
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-noto-color-emoji libcairo2 \
+    ffmpeg fluidsynth timgm6mb-soundfont \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -72,7 +72,7 @@ SPEC = [
     ("intent_imperative_apologize", True, ["sorry", "i'm sorry", "im sorry", "i apologize", "never mind", "nevermind"]),
     ("intent_imperative_love", False, ["i love you"]),
     ("intent_imperative_love", True, ["love you"]),
-    ("intent_imperative_quiet", True, ["quiet", "be quiet", "stop", "hush"]),
+    ("intent_imperative_quiet", True, ["hush"]),  # stop / quiet / be quiet -> agent (stops music)
     ("intent_imperative_shutup", False, ["shut up"]),
     # --- volume
     ("intent_imperative_volumedown", False, ["volume down", "turn the volume down", "turn down the volume",
