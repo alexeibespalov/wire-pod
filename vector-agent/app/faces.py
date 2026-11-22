@@ -52,6 +52,12 @@ def _watch_forever() -> None:
             if old:
                 _seen[int(event.new_id)] = old
 
+    def on_wake_word(_robot, _type, event, *_a, **_k):
+        # firmware won't stream the mic to wire-pod while our audio plays: pause it
+        if event.WhichOneof("wake_word_type") == "wake_word_begin":
+            from .audio import PLAYER
+            PLAYER.on_wake_word()
+
     backoff = 5
     while True:
         try:
@@ -59,6 +65,7 @@ def _watch_forever() -> None:
                                    enable_face_detection=True, cache_animation_lists=False) as r:
                 r.events.subscribe(on_face, Events.robot_observed_face)
                 r.events.subscribe(on_id_changed, Events.robot_changed_observed_face_id)
+                r.events.subscribe(on_wake_word, Events.wake_word)
                 _robot = r
                 _status = "watching"
                 log.info("faces: listening for Vector's face recognition events")

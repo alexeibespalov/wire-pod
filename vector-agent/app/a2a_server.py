@@ -57,6 +57,7 @@ class VectorExecutor(AgentExecutor):
 
         thread = f"a2a-{context_id}"
         async with turn.lock():
+            PLAYER.turn_started()
             turn.reset(via="a2a")
             log.info("[%s] a2a user: %s", thread, text)
             try:
@@ -68,8 +69,7 @@ class VectorExecutor(AgentExecutor):
             finally:
                 turn.reset()  # back to voice defaults
         log.info("[%s] a2a vector: %s", thread, reply)
-        if PLAYER.has_pending():
-            PLAYER.kick(0.5)
+        PLAYER.turn_ended(0.5)
         await updater.add_artifact(parts=[Part(text=reply)], name="reply", last_chunk=True)
         await updater.complete()
 

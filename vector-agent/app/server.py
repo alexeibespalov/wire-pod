@@ -144,6 +144,7 @@ def _user_text(body: dict) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    PLAYER.bind_loop(asyncio.get_running_loop())
     faces.start()  # background listen-only SDK connection for face presence
     library.start()  # index the NAS music library (cached)
     mcp = await load_mcp_tools()
@@ -184,6 +185,7 @@ async def chat_completions(request: Request):
         yield _chunk(cid, model, "{{playAnimationWI||dartingEyes}}")
         yield _chunk(cid, model, None, "stop")
         yield "data: [DONE]\n\n"
+        PLAYER.turn_ended(0.5)  # resume music a wake word paused
 
     async def run_stream():
         async with turn.lock():  # shared with A2A: one robot, one turn at a time
@@ -191,6 +193,7 @@ async def chat_completions(request: Request):
             cfg = {"configurable": {"thread_id": thread}}
             log.info("[%s] user: %s", thread, text)
             t0, said, final, tools_used = time.time(), [], None, set()
+            PLAYER.turn_started()
             turn.reset(is_followup=followup)  # follow-up: wire-pod holds the robot from the start
             if followup:
                 log.info("[%s] follow-up (knowledge-graph path): wire-pod holds control", thread)
@@ -272,7 +275,8 @@ async def chat_completions(request: Request):
             # listening after he speaks so follow-ups don't need "Hey Vector".
             full = "".join(said)
             spoken = _CUE.sub("", full).strip()
-            routine = bool(tools_used & {"do_action", "learn_face"}) or PLAYER.has_pending()  # don't listen while he dances etc.
+            routine = (bool(tools_used & {"do_action", "learn_face"}) or PLAYER.has_pending()
+                       or PLAYER.is_paused())  # music about to (re)start: don't keep listening  # don't listen while he dances etc.
             if config.FOLLOW_UP_MODE == "always":
                 want = bool(spoken) and not routine
             elif config.FOLLOW_UP_MODE == "questions":
@@ -286,9 +290,9 @@ async def chat_completions(request: Request):
             log.info("[%s] vector (%.2fs): %s", thread, time.time() - t0, "".join(said))
             yield _chunk(cid, model, None, "stop")
             yield "data: [DONE]\n\n"
-            # Music/podcast queued this turn: start once he's said his (short) reply.
-            if PLAYER.has_pending():
-                PLAYER.kick(2.0 + len(spoken) / 12)
+            # Start music queued this turn, or resume music the wake word paused,
+            # once he's said his (short) reply.
+            PLAYER.turn_ended(2.0 + len(spoken) / 12)
 
     async def stop_fast():
         # "stop" while music plays: no LLM round-trip, just stop it
@@ -298,7 +302,7 @@ async def chat_completions(request: Request):
         yield _chunk(cid, model, None, "stop")
         yield "data: [DONE]\n\n"
 
-    if _is_stop(text) and (PLAYER.is_playing() or PLAYER.has_pending()):
+    if _is_stop(text) and PLAYER.active():
         gen = stop_fast()
     else:
         gen = silent_end() if _is_silence(text) else run_stream()
