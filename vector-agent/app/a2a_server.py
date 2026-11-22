@@ -10,6 +10,7 @@ share one robot. Replies go back as text; the model is told it's talking to a re
 agent (app/prompt.py A2A_NOTE). The camera is off for remote agents unless
 A2A_ALLOW_CAMERA=1.
 """
+import asyncio
 import hmac
 import logging
 import re
@@ -58,18 +59,25 @@ class VectorExecutor(AgentExecutor):
             parts=[Part(text="Vector is thinking...")]))
 
         thread = f"a2a-{context_id}"
-        async with turn.lock():
-            PLAYER.turn_started()
-            turn.reset(via="a2a")
-            log.info("[%s] a2a user: %s", thread, text)
-            try:
-                result = await self._get_agent().ainvoke(text, {"configurable": {"thread_id": thread}})
-                reply = _CUE.sub("", str(result or "")).strip() or "(no reply)"
-            except Exception as e:
-                log.exception("a2a turn failed")
-                reply = f"Sorry, my brain glitched: {type(e).__name__}"
-            finally:
-                turn.reset()  # back to voice defaults
+        try:
+            async with turn.hold(config.TURN_LOCK_WAIT_S):
+                PLAYER.turn_started()
+                turn.reset(via="a2a")
+                log.info("[%s] a2a user: %s", thread, text)
+                try:
+                    async with asyncio.timeout(config.TURN_HARD_LIMIT_S):
+                        result = await self._get_agent().ainvoke(text, {"configurable": {"thread_id": thread}})
+                    reply = _CUE.sub("", str(result or "")).strip() or "(no reply)"
+                except TimeoutError:
+                    log.error("[%s] a2a turn cancelled after %.0fs", thread, config.TURN_HARD_LIMIT_S)
+                    reply = "Sorry, that took too long and I gave up. Try again?"
+                except Exception as e:
+                    log.exception("a2a turn failed")
+                    reply = f"Sorry, my brain glitched: {type(e).__name__}"
+                finally:
+                    turn.reset()  # back to voice defaults
+        except turn.Busy:
+            reply = "I'm busy with another conversation right now; try again in a moment."
         log.info("[%s] a2a vector: %s", thread, reply)
         PLAYER.turn_ended(0.5)
         await updater.add_artifact(parts=[Part(text=reply)], name="reply", last_chunk=True)

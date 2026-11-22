@@ -24,6 +24,7 @@ CONTROL_TOOLS = {"drive", "turn", "move_head", "move_lift", "do_action", "play_a
                  "move", "run_maneuver", "tune"}   # body engine (app/body.py, app/maneuvers.py)
 
 import asyncio
+import contextlib
 import time
 
 channel = "voice"          # "voice" (wire-pod, spoken) or "a2a" (remote agent, text)
@@ -42,6 +43,25 @@ def lock() -> asyncio.Lock:
     if _lock is None:
         _lock = asyncio.Lock()
     return _lock
+
+
+class Busy(Exception):
+    """The turn lock couldn't be had in time (another turn is running or stuck)."""
+
+
+@contextlib.asynccontextmanager
+async def hold(wait_s: float):
+    """`async with turn.hold(20):` = the turn lock, but give up after wait_s instead of
+    waiting forever (a stuck holder must never silence Vector for good)."""
+    lk = lock()
+    try:
+        await asyncio.wait_for(lk.acquire(), wait_s)
+    except (TimeoutError, asyncio.TimeoutError):
+        raise Busy(f"turn lock busy for {wait_s:.0f}s") from None
+    try:
+        yield
+    finally:
+        lk.release()
 
 
 def reset(is_followup: bool = False, via: str = "voice") -> None:

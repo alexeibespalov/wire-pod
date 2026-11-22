@@ -173,6 +173,47 @@ def _bg(coro) -> None:
     t.add_done_callback(_bg_tasks.discard)
 
 
+def _detached(agen, cid: str, model: str):
+    """Run a reply generator to the end in its OWN task and hand its chunks to the client
+    through a queue. The turn holds the turn lock; if wire-pod drops the stream mid-reply,
+    a generator left suspended at a `yield` would keep that lock forever and every later
+    "Hey Vector" would wait in silence. Here the turn always finishes (or is cancelled at
+    TURN_HARD_LIMIT_S) and releases the lock, whatever the client does."""
+    q: asyncio.Queue = asyncio.Queue()
+    sent_stop = [False]
+
+    async def pump():
+        try:
+            async with asyncio.timeout(config.TURN_HARD_LIMIT_S):
+                async for item in agen:
+                    if item.startswith("data: [DONE]"):
+                        sent_stop[0] = True
+                    q.put_nowait(item)
+        except turn.Busy as e:
+            log.error("turn skipped: %s (a previous turn is still running)", e)
+            activity.record("conversation", f"couldn't answer: still busy with the previous turn ({e})")
+            q.put_nowait(_chunk(cid, model, "{{playAnimationWI||confused}} Sorry, I'm still busy. Try me again in a moment?"))
+        except TimeoutError:
+            log.error("turn cancelled: still running after %.0fs", config.TURN_HARD_LIMIT_S)
+            activity.record("conversation", f"gave up on a turn that ran over {config.TURN_HARD_LIMIT_S:.0f}s")
+        except Exception:
+            log.exception("turn failed")
+        finally:
+            if not sent_stop[0]:
+                q.put_nowait(_chunk(cid, model, None, "stop"))
+                q.put_nowait("data: [DONE]\n\n")
+            q.put_nowait(None)
+
+    t = asyncio.get_running_loop().create_task(pump())
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+
+    async def reader():
+        while (item := await q.get()) is not None:
+            yield item
+    return reader()
+
+
 async def _memory_pass(said: str, reply: str) -> None:
     try:
         for change in await memory.reflect(said, reply):
@@ -238,7 +279,7 @@ async def chat_completions(request: Request):
         PLAYER.turn_ended(0.5)  # resume music a wake word paused
 
     async def run_stream():
-        async with turn.lock():  # shared with A2A: one robot, one turn at a time
+        async with turn.hold(config.TURN_LOCK_WAIT_S):  # shared with A2A: one turn at a time
             thread, gap = _thread_id()
             note = _stamp(eyes, gap)
             cfg = {"configurable": {"thread_id": thread}}
@@ -366,6 +407,7 @@ async def chat_completions(request: Request):
         gen = stop_fast()
     else:
         gen = silent_end() if _is_silence(text) else run_stream()
+    gen = _detached(gen, cid, model)
     if stream:
         return StreamingResponse(gen, media_type="text/event-stream")
 

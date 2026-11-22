@@ -59,6 +59,10 @@ MAX_AGENT_STEPS = int(_env("MAX_AGENT_STEPS", "6"))
 # Vector abandons a voice request after ~25 s (cloud-with-X face): past this, the agent
 # stops calling tools and answers with what it has.
 TURN_BUDGET_S = float(_env("TURN_BUDGET_S", "14"))
+# Hard limits so nothing can wedge him: a turn is cancelled after TURN_HARD_LIMIT_S whatever
+# it's doing, and a new request waits at most TURN_LOCK_WAIT_S for the previous one.
+TURN_HARD_LIMIT_S = float(_env("TURN_HARD_LIMIT_S", "60"))
+TURN_LOCK_WAIT_S = float(_env("TURN_LOCK_WAIT_S", "20"))
 # Keep listening after a reply (no "Hey Vector" needed for follow-ups):
 #   always    = after every spoken reply, except when a built-in routine was started
 #   questions = only when the reply ends with a question

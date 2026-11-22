@@ -22,6 +22,37 @@ log = logging.getLogger("vector-agent")
 
 PRESENT_SECONDS = 20       # a face seen within this window counts as "here now"
 STATE_STALE_RECONNECT_S = 15  # no robot_state this long = the event stream died: reconnect
+CONNECT_TIMEOUT_S = 30        # the SDK's connect() can wait forever (e.g. camera asleep): give up
+DISCONNECT_TIMEOUT_S = 10
+
+
+def _quiet(fn) -> None:
+    try:
+        fn()
+    except BaseException:  # noqa: BLE001
+        pass
+
+
+def _within(fn, timeout: float, what: str) -> None:
+    """Run a blocking SDK call in a helper thread and stop waiting after `timeout`.
+    The SDK has no timeout on several connect steps (camera config, face detection): when
+    Vector's camera is off (asleep on the charger) connect() blocks for ever. A hung call is
+    abandoned (daemon thread) so the watcher can retry instead of freezing."""
+    done, err = threading.Event(), []
+
+    def go():
+        try:
+            fn()
+        except BaseException as e:  # noqa: BLE001 - re-raised in the caller
+            err.append(e)
+        finally:
+            done.set()
+
+    threading.Thread(target=go, daemon=True, name=f"sdk-{what}").start()
+    if not done.wait(timeout):
+        raise TimeoutError(f"{what} took over {timeout:.0f}s")
+    if err:
+        raise err[0]
 _last_state = [0.0]
 SPEAKER_SECONDS = 6        # a face seen this recently may be the one talking
 KNOWN_REFRESH_SECONDS = 60
@@ -85,8 +116,16 @@ def _watch_forever() -> None:
     backoff = 5
     while True:
         try:
-            with anki_vector.Robot(config.VECTOR_SERIAL, behavior_control_level=None,
-                                   enable_face_detection=True, cache_animation_lists=False) as r:
+            r = anki_vector.Robot(config.VECTOR_SERIAL, behavior_control_level=None,
+                                  enable_face_detection=True, cache_animation_lists=False)
+            try:
+                _within(r.connect, CONNECT_TIMEOUT_S, "connect")
+            except Exception:
+                # tidy the half-open link in the background; never wait on it
+                threading.Thread(target=lambda: _quiet(r.disconnect), daemon=True,
+                                 name="sdk-disconnect").start()
+                raise
+            try:
                 r.events.subscribe(on_face, Events.robot_observed_face)
                 r.events.subscribe(on_id_changed, Events.robot_changed_observed_face_id)
                 r.events.subscribe(on_wake_word, Events.wake_word)
@@ -113,6 +152,12 @@ def _watch_forever() -> None:
                         raise ConnectionError(f"no robot state for {STATE_STALE_RECONNECT_S:.0f}s "
                                               f"(event stream closed?)")
                     time.sleep(2)
+            finally:
+                _robot = None
+                try:
+                    _within(r.disconnect, DISCONNECT_TIMEOUT_S, "disconnect")
+                except Exception as de:
+                    log.warning("faces: disconnect didn't finish (%s); abandoning that link", de)
         except Exception as e:
             _robot = None
             _status = f"disconnected ({type(e).__name__})"
