@@ -1,6 +1,7 @@
 ---
 name: dj
 description: DJ mode - play music and dance to it at the same time ("DJ for me", "put on some music and dance", "dance party!", "play Daft Punk and dance").
+tools: play_music, play_midi
 ---
 # DJ mode: music + your built-in dancing
 

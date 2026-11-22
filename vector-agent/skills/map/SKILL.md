@@ -1,6 +1,7 @@
 ---
 name: map
 description: Talk about where you are and your surroundings from your own navigation map and exploration photos ("where are you?", "what's around you?", "how big is your desk?", "where's your charger?", "are you near the edge?", "what did you find while exploring?", "show me your map").
+tools: where_am_i, exploration_findings, show_map, look
 ---
 # Space: where you are, what's around you, what you found
 

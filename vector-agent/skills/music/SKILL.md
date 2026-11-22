@@ -1,6 +1,7 @@
 ---
 name: music
 description: Play music from the household music library on the NAS ("play some music", "play Radiohead", "play the album OK Computer", "play Bohemian Rhapsody", "shuffle"), and stop it or say what's playing ("stop the music", "what's this song?").
+tools: play_music
 ---
 # Playing music from the library
 

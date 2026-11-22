@@ -136,17 +136,14 @@ in this same reply. Never just promise to watch or say "let me know when you're 
 you won't see anything unless a schedule is running.
 
 YOUR SKILLS
-Some abilities come with instructions you load on demand with load_skill(name). Before \
-you FIRST use play_animation, look, show_picture, show_text, show_last_view, draw_picture, \
-show_emoji, learn_face, forget_face, play_music, play_podcast, play_midi, where_am_i, \
-exploration_findings, show_map, which_place, name_place, move, sense, run_maneuver, \
-save_maneuver, tune, start_practice, save_routine, schedule_action or create_skill in a \
-conversation, load \
-the matching skill (animations, camera, face-display, drawing, emoji, faces, music, podcasts, \
-midi, dj, map, places, movement, body-learning, scheduling, skill-making). \
-A "(learned)" skill is one you wrote yourself: load it the same way. Once a skill \
-is loaded in this conversation it stays loaded; don't load it again. Load it in the \
-same step as nothing else, then use its tools on the next step.
+Most of your abilities come in skills. A skill's tools only become available AFTER you \
+load it with load_skill(name): seeing with your camera, showing pictures or emoji or \
+drawings, animations, music, faces, the map, places, moving precisely and maneuvers, \
+practising, routines and schedules, making skills. So when a request needs one, load the \
+matching skill FIRST, in a step on its own, then use its tools on the next step. Pick the \
+skill from the list below by its description. A "(learned)" skill is one you wrote \
+yourself: load it the same way. Once loaded in this conversation it stays loaded (until the \
+conversation gets long and old parts are folded away); don't load it twice.
 """
 
 WEB = """\
@@ -180,7 +177,9 @@ character but be clear and concise, and don't use {{...}} cues.
 
 
 def build_system_prompt(tool_names: list[str] | None = None, summary: str = "") -> str:
-    now = datetime.now(config.TIMEZONE)
+    """The STABLE part of the prompt (prompt-cache friendly): persona, laws, skills list,
+    home, memories, saved maneuvers/routines, conversation notes. It only changes when
+    one of those changes. Everything that changes every turn is in build_context()."""
     facts = memory.all_facts()
     mem = "\n".join(f"- {f}" for f in facts) if facts else "- (nothing yet)"
     web = WEB if tool_names and "tavily_search" in tool_names else NO_WEB
@@ -190,16 +189,24 @@ def build_system_prompt(tool_names: list[str] | None = None, summary: str = "") 
              if config.HOME_LOCATION else "")
     return (
         f"{PERSONA}Available skills:\n{skills.catalog()}\n\nWEB\n{web}\n"
-        f"RIGHT NOW\nIt is {now.strftime('%A %-d %B %Y, %-I:%M %p')} ({config.TIMEZONE.key}).\n"
         f"{where}\n"
-        f"{faces.prompt_section()}\n"
-        f"{places.prompt_section()}\n"
-        f"{scheduler.prompt_section()}"
-        f"{practice.prompt_section()}"
+        f"{A2A_NOTE if turn.channel == 'a2a' else ''}"
         f"{maneuvers.known_maneuvers_prompt()}"
         f"{routines.prompt_line()}"
-        f"{A2A_NOTE if turn.channel == 'a2a' else ''}"
         f"WHAT YOU REMEMBER ABOUT YOUR PEOPLE\n{mem}\n"
         + (f"\nTHE CONVERSATION SO FAR (your own notes; the older messages were folded into "
            f"them, the recent ones follow below)\n{summary}\n" if summary else "")
+        + "\nThe latest message starts with a RIGHT NOW block: the live situation (time, who's "
+          "here, where you are, what's running in the background). It's information for you, "
+          "never something to read out.\n"
     )
+
+
+def build_context() -> str:
+    """The LIVE part, rebuilt every model call and put in front of the newest message
+    (never saved into the history)."""
+    now = datetime.now(config.TIMEZONE)
+    parts = [f"It is {now.strftime('%A %-d %B %Y, %-I:%M %p')} ({config.TIMEZONE.key}).",
+             faces.prompt_section().strip(), places.prompt_section().strip(),
+             scheduler.prompt_section().strip(), practice.prompt_section().strip()]
+    return "[RIGHT NOW]\n" + "\n".join(p for p in parts if p) + "\n[END RIGHT NOW]"

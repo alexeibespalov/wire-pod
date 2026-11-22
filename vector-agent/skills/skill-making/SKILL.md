@@ -1,6 +1,7 @@
 ---
 name: skill-making
 description: Turn something you just figured out into a skill of your own so you can do it straight away next time ("now you've learned to ...", "remember how to do that", "that's your new trick", "make that a skill"). Also improving or forgetting a learned skill.
+tools: create_skill, update_skill, forget_skill
 ---
 # Making your own skills
 

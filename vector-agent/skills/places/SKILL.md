@@ -1,6 +1,7 @@
 ---
 name: places
 description: Know WHICH place you're on (office desk, kitchen table, the floor...) and remember places across moves ("where are you?", "do you know where you are?", "this is the kitchen table", "have you been here before?", "what places do you know?", "forget the hallway").
+tools: which_place, name_place, forget_place, where_am_i
 ---
 # Places: where am I?
 

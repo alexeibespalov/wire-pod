@@ -1,6 +1,7 @@
 ---
 name: animations
 description: Pick and play one of Vector's own named animations (greetings, celebrations, sulks, sneezy wake-ups, dance moves, weather icons, performances). Use when a moment deserves a real full-body reaction, or the user asks you to act out a feeling or do something expressive.
+tools: play_animation
 ---
 # Playing named animations
 

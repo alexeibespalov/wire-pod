@@ -1,6 +1,7 @@
 ---
 name: scheduling
 description: Do something LATER, REPEATEDLY or OVER TIME in the background, and save reusable routines ("watch me play my game", "remind me at 7", "every morning say good morning", "keep an eye on the cat", "tell me when...", "stop watching"). Not for moving your body (that's maneuvers).
+tools: save_routine, list_routines, delete_routine, schedule_action, look, play_animation
 ---
 # Routines and scheduled actions
 

@@ -44,7 +44,18 @@ def _parse(path: Path) -> dict | None:
     if "name" not in meta or "description" not in meta:
         return None
     meta["body"] = body.strip()
+    meta["tools"] = [t.strip() for t in meta.get("tools", "").split(",") if t.strip()]
     return meta
+
+
+def tools_for(skill_names) -> list[str]:
+    """Tool names unlocked by these skills, in skill order (stable for prompt caching)."""
+    out: list[str] = []
+    for n in skill_names:
+        for t in (SKILLS.get(n) or {}).get("tools", []):
+            if t not in out:
+                out.append(t)
+    return out
 
 
 def load_all() -> dict[str, dict]:
@@ -84,7 +95,8 @@ def load_skill(name: Annotated[str, Field(description="Skill name from the SKILL
     s = SKILLS.get(name.strip())
     if s is None:
         return f"error: no skill {name!r}; available: {', '.join(SKILLS)}"
-    return f"SKILL {s['name']} loaded. Follow these instructions:\n\n{s['body']}"
+    tools = f"Tools now available: {', '.join(s['tools'])}.\n" if s.get("tools") else ""
+    return f"SKILL {s['name']} loaded. {tools}Follow these instructions:\n\n{s['body']}"
 
 
 # ----------------------------------------------------------------- learned skills
@@ -96,11 +108,26 @@ def _one_line(text: str, limit: int) -> str:
     return " ".join(text.replace('"', "'").split())[:limit]
 
 
-def _write_learned(name: str, description: str, instructions: str, taught_by: str, created: str) -> None:
+def _known_tools() -> set[str]:
+    from .tools import TOOLS_BY_NAME
+    return set(TOOLS_BY_NAME)
+
+
+def _check_tools(tools: list[str] | None) -> tuple[list[str], str | None]:
+    tools = [t.strip() for t in (tools or []) if t and t.strip()]
+    bad = [t for t in tools if t not in _known_tools()]
+    if bad:
+        return [], f"error: no such tool(s): {', '.join(bad)}"
+    return tools[:12], None
+
+
+def _write_learned(name: str, description: str, instructions: str, taught_by: str, created: str,
+                   tools: list[str] | None = None) -> None:
     d = LEARNED_DIR / name
     d.mkdir(parents=True, exist_ok=True)
     body = instructions.strip().replace("\r", "")
-    text = (f"---\nname: {name}\ndescription: {description}\nlearned: true\n"
+    tl = f"tools: {', '.join(tools)}\n" if tools else ""
+    text = (f"---\nname: {name}\ndescription: {description}\n{tl}learned: true\n"
             f"taught_by: {taught_by}\ncreated: {created}\n"
             f"updated: {datetime.now(config.TIMEZONE).isoformat(timespec='minutes')}\n---\n{body}\n")
     tmp = d / "SKILL.md.tmp"
@@ -116,7 +143,10 @@ def create_skill(
             "'Watch someone play a video game on the TV and react (\"watch me play\", \"watch my game\")'"))],
         instructions: Annotated[str, Field(description=(
             "The recipe, written to your future self: when to use it, exact steps, which "
-            "routines/maneuvers/schedule settings to use with the values that worked, and gotchas"))]) -> str:
+            "routines/maneuvers/schedule settings to use with the values that worked, and gotchas"))],
+        tools: Annotated[list[str], Field(description=(
+            "Tool names the recipe uses, so loading this skill makes them available, "
+            "e.g. ['schedule_action', 'look']"))] = []) -> str:
     """Save something you just learned as a new SKILL of your own, so next time you can
     do it straight away. Use when someone says you've learned something ("now you know
     how to ...") or after you worked out something new that went well. Load the
@@ -133,9 +163,12 @@ def create_skill(
         return f"error: you already have a learned skill called {n}; use update_skill"
     if len([s for s in SKILLS.values() if s.get("learned")]) >= MAX_LEARNED:
         return f"error: you know {MAX_LEARNED} learned skills already; forget one first"
+    tl, err = _check_tools(tools)
+    if err:
+        return err
     from . import faces
     _write_learned(n, desc, instructions, faces.front_name() or "someone",
-                   datetime.now(config.TIMEZONE).isoformat(timespec="minutes"))
+                   datetime.now(config.TIMEZONE).isoformat(timespec="minutes"), tl)
     reload()
     return f"learned a new skill: {n}. It's in your skills list now."
 
@@ -144,15 +177,19 @@ def create_skill(
 def update_skill(
         name: str,
         description: Annotated[str, Field(description="New one-line description, or empty to keep it")] = "",
-        instructions: Annotated[str, Field(description="Full new instructions, or empty to keep them")] = "") -> str:
+        instructions: Annotated[str, Field(description="Full new instructions, or empty to keep them")] = "",
+        tools: Annotated[list[str], Field(description="New full list of tool names, or empty to keep them")] = []) -> str:
     """Improve one of your learned skills (built-in skills can't be changed)."""
     s = SKILLS.get(_slug(name))
     if s is None or not s.get("learned"):
         return f"error: no learned skill called {name!r}"
     if instructions and len(instructions) > 4000:
         return "error: keep the instructions under 4000 characters"
+    tl, err = _check_tools(tools) if tools else (s.get("tools", []), None)
+    if err:
+        return err
     _write_learned(s["name"], _one_line(description, 300) or s["description"], instructions or s["body"],
-                   s.get("taught_by", "someone"), s.get("created", ""))
+                   s.get("taught_by", "someone"), s.get("created", ""), tl)
     reload()
     return f"updated skill {s['name']}"
 

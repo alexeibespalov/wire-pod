@@ -1,6 +1,7 @@
 ---
 name: podcasts
 description: Find and play podcast episodes ("play the latest Rest Is History", "play the newest episode of Radiolab", "play the Lex Fridman episode about robots"). Also stop/pause requests while a podcast plays.
+tools: play_podcast
 ---
 # Playing podcasts
 

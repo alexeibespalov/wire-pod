@@ -1,6 +1,7 @@
 ---
 name: movement
 description: Move your own body in measured, safe ways ("wiggle", "nod", "do a little dance", "nudge forward until something is close", "turn around", "come closer", "what's in front of you?") and save the moves you make up as named maneuvers. Also reading your own body sensors. Use instead of the coarse drive/turn tools whenever the move is more than one simple step.
+tools: move, sense, save_maneuver, run_maneuver, list_maneuvers, show_maneuver, delete_maneuver, record_attempt
 ---
 # Moving your body: move, sense, maneuvers
 

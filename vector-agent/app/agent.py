@@ -9,6 +9,7 @@ memory; `entrypoint.final(save=...)` stores the updated history.
 """
 import asyncio
 import json
+import re
 
 from langchain_core.messages import (AIMessage, AnyMessage, HumanMessage, SystemMessage,
                                      ToolMessage)
@@ -17,8 +18,8 @@ from langgraph.config import get_config
 from langgraph.func import entrypoint, task
 from langgraph.graph.message import add_messages
 
-from . import activity, compaction, config, guard, turn
-from .prompt import build_system_prompt
+from . import activity, compaction, config, guard, skills, turn
+from .prompt import build_context, build_system_prompt
 from .tools import TOOLS
 
 MAX_TOOL_RESULT_CHARS = 6000  # keep web results from bloating a small model's context
@@ -50,6 +51,68 @@ def _request_text(messages: list[AnyMessage]) -> str:
     return "\n---\n".join(said[:2])
 
 
+# Always offered. Everything else arrives when its skill is loaded (skills/*/SKILL.md
+# `tools:`), which keeps each model call small (~8k tokens of tool schemas -> ~2.5k) and
+# gives the small model fewer, more relevant tools to choose from.
+CORE_TOOLS = ["drive", "turn", "move_head", "move_lift", "do_action", "set_eye_color", "battery_status",
+              "remember", "forget", "load_skill", "recent_activity", "search_logs", "stop_music",
+              "now_playing", "list_schedules", "cancel_schedule", "practice_status", "stop_practice",
+              "sleep_routine_status", "say_aloud"]
+_LOADED = re.compile(r"^SKILL (\S+) loaded")
+_CACHE = {"cache_control": {"type": "ephemeral"}}
+
+
+def _loaded_skills(messages: list[AnyMessage]) -> list[str]:
+    out: list[str] = []
+    for m in messages:
+        if isinstance(m, ToolMessage) and m.name == "load_skill":
+            if (mm := _LOADED.match(str(m.content))) and mm.group(1) not in out:
+                out.append(mm.group(1))
+    return out
+
+
+def active_tool_names(messages: list[AnyMessage], available: dict, always: list[str]) -> list[str]:
+    """Core + always-on extras (web search) + tools of skills loaded in this conversation,
+    in a stable order (core first, then skills in the order they were loaded)."""
+    names = [n for n in CORE_TOOLS if n in available] + [n for n in always if n not in CORE_TOOLS]
+    for n in skills.tools_for(_loaded_skills(messages)):
+        if n in available and n not in names:
+            names.append(n)
+    return names
+
+
+def _cached(m: AnyMessage) -> AnyMessage:
+    """Copy of m with a prompt-cache breakpoint (Alibaba explicit cache: the prefix up to
+    here is cached for ~5 min and re-used by the next call that starts the same way)."""
+    return m.model_copy(update={"content": [{"type": "text", "text": m.content, **_CACHE}]})
+
+
+def for_model(system: SystemMessage, messages: list[AnyMessage], context: str) -> list[AnyMessage]:
+    """What the model sees: [system (cached)] + history (cache breakpoint at its end) + the
+    newest human message with the live RIGHT NOW block in front (not saved) + this turn's
+    tool rounds (breakpoint on the last one, so each tool-loop step re-uses the previous)."""
+    msgs = list(messages)
+    cur = max((i for i, m in enumerate(msgs) if isinstance(m, HumanMessage)), default=None)
+    if cur is not None:
+        msgs[cur] = msgs[cur].model_copy(update={"content": f"{context}\n{msgs[cur].content}"})
+
+    def mark(i):
+        if 0 <= i < len(msgs) and isinstance(msgs[i].content, str) and msgs[i].content.strip() \
+                and not isinstance(msgs[i], ToolMessage):
+            msgs[i] = _cached(msgs[i])
+            return True
+        return False
+
+    if cur is not None:           # end of the stored history, before the newest message
+        for i in range(cur - 1, max(cur - 6, -1), -1):
+            if mark(i):
+                break
+        for i in range(len(msgs) - 1, cur - 1, -1):   # latest point of this turn
+            if mark(i):
+                break
+    return [_cached(system), *msgs]
+
+
 def _as_text(result) -> str:
     """Tool results may be str, a list of MCP content blocks, or (content, artifact)."""
     if isinstance(result, tuple) and len(result) == 2:
@@ -69,19 +132,30 @@ def _as_text(result) -> str:
 def build_agent(checkpointer, extra_tools: list | None = None):
     tools = [*TOOLS, *(extra_tools or [])]
     tools_by_name = {t.name: t for t in tools}
-    llm_with_tools = llm.bind_tools(tools)
+    always = [t.name for t in (extra_tools or [])]          # web search: always on
     tool_names = sorted(tools_by_name)
+    _bound: dict[tuple, object] = {}
+
+    def bound(names: list[str]):
+        key = tuple(names)
+        if key not in _bound:
+            _bound[key] = llm.bind_tools([tools_by_name[n] for n in names])
+        return _bound[key]
 
     @task
-    async def call_model(messages: list[AnyMessage]) -> AIMessage:
-        return await llm_with_tools.ainvoke(messages)
+    async def call_model(messages: list[AnyMessage], names: list[str]) -> AIMessage:
+        return await bound(names).ainvoke(messages)
 
     @task
-    async def call_tool(tool_call: dict, request: str = "") -> ToolMessage:
+    async def call_tool(tool_call: dict, request: str = "", allowed: list[str] | None = None) -> ToolMessage:
         tool = tools_by_name.get(tool_call["name"])
         blocked = None
         if tool is None:
             content = f"error: no tool called {tool_call['name']}"
+        elif allowed is not None and tool.name not in allowed:
+            owner = [n for n, sk in skills.SKILLS.items() if tool.name in sk.get("tools", [])]
+            content = (f"error: {tool.name} isn't available yet: load the "
+                       f"{' or '.join(repr(o) for o in owner[:3]) or 'matching'} skill first")
         elif (turn.channel == "a2a" and tool.name in {"look", "show_last_view"}
               and not config.A2A_ALLOW_CAMERA):
             content = "error: your camera isn't available to remote agents (privacy setting)"
@@ -106,12 +180,13 @@ def build_agent(checkpointer, extra_tools: list | None = None):
 
         response = None
         for _ in range(config.MAX_AGENT_STEPS):
-            response = await call_model([system, *messages])
+            names = active_tool_names(messages, tools_by_name, always)
+            response = await call_model(for_model(system, messages, build_context()), names)
             messages = add_messages(messages, [response])
             if not response.tool_calls:
                 break
             request = _request_text(messages)
-            results = await asyncio.gather(*(call_tool(tc, request) for tc in response.tool_calls))
+            results = await asyncio.gather(*(call_tool(tc, request, names) for tc in response.tool_calls))
             messages = add_messages(messages, list(results))
         else:
             # step budget exhausted mid-tool-loop: close the turn with plain text

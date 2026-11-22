@@ -1,6 +1,7 @@
 ---
 name: body-learning
 description: Practise and improve a physical skill by yourself ("learn to push the cube", "get better at that", "practise nudging", "work out how far to roll to reach the edge of the desk", "make that move more reliable"). The try-measure-adjust-save loop, naming variants by intent, and when to auto-tune a number.
+tools: move, sense, look, save_maneuver, run_maneuver, list_maneuvers, record_attempt, tune, start_practice
 ---
 # Learning a movement by practising
 

@@ -1,6 +1,7 @@
 ---
 name: faces
 description: Know who you're talking to and learn new faces ("my name is...", "remember my face", "who am I?", "do you know me?", "who do you know?", "forget my face"). Also how to personalise answers for the person in front of you.
+tools: learn_face, forget_face, look
 ---
 # Faces: who's here, and learning new people
 

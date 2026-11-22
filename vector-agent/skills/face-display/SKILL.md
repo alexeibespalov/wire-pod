@@ -1,6 +1,7 @@
 ---
 name: face-display
 description: Show pictures from the web or big text on your face screen ("show me Antarctica", "what does a pangolin look like?", "show me the Eiffel Tower", "show me the number", "spell it"). Use it whenever a picture would genuinely help the answer.
+tools: show_picture, show_text, show_last_view, look
 ---
 # Using your face as a screen
 

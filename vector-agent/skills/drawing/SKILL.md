@@ -1,6 +1,7 @@
 ---
 name: drawing
 description: Draw your own pictures on your face screen by writing SVG ("draw me a smiley face", "draw a cat", "can you draw a heart / a house / a rocket / the sun?", "doodle something"). Use for drawing requests; use face-display's show_picture for real photos.
+tools: draw_picture
 ---
 # Drawing on your face screen
 

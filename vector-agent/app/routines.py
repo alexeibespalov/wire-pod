@@ -363,8 +363,9 @@ async def run_instruction(instruction: str, ctx: RunCtx, max_steps: int = 4) -> 
                          f"never guess what you'd see). Then reply ONLY with what to say out loud, "
                          f"or exactly {SILENT}. Never explain why you're silent.")]
     final = ""
+    from .agent import _cached
     for _ in range(max_steps):
-        res: AIMessage = await llm.ainvoke(msgs)
+        res: AIMessage = await llm.ainvoke([_cached(msgs[0]), *msgs[1:]])   # system + tools cached
         msgs.append(res)
         if not res.tool_calls:
             final = str(res.content).strip()

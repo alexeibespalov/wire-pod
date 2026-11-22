@@ -100,6 +100,20 @@ def _trim(msgs: list) -> list:
     return head + tail
 
 
+def _with_cache(msgs: list) -> list:
+    """Prompt-cache breakpoints: the big fixed system prompt, and the newest message (each
+    step re-uses everything before it)."""
+    from .agent import _cached
+    out = list(msgs)
+    out[0] = _cached(out[0])
+    for i in range(len(out) - 1, 0, -1):
+        m = out[i]
+        if isinstance(m.content, str) and m.content.strip() and not isinstance(m, ToolMessage):
+            out[i] = _cached(m)
+            break
+    return out
+
+
 async def _wait_until_free(sess: dict) -> None:
     while turn.lock().locked() or time.time() < routines._quiet_until:
         if sess["status"] != "paused":
@@ -154,7 +168,7 @@ async def _run(sess: dict) -> None:
     try:
         while time.time() < sess["until"] and sess["tries"] <= sess["max_tries"]:
             await _wait_until_free(sess)
-            res: AIMessage = await llm.ainvoke(_trim(msgs))
+            res: AIMessage = await llm.ainvoke(_with_cache(_trim(msgs)))
             msgs.append(res)
             text = str(res.content).strip()
             if text:

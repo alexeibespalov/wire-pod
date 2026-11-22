@@ -1,6 +1,7 @@
 ---
 name: emoji
 description: Show big colour emoji on your face screen ("show me an emoji", "what emoji are you feeling?", "give me a thumbs up", reacting with 🎉 or ❤️, a quick visual like ☀️ for sunny). Instant and expressive; use it for reactions and moods.
+tools: show_emoji
 ---
 # Showing emoji on your face
 

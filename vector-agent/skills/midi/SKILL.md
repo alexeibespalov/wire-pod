@@ -1,6 +1,7 @@
 ---
 name: midi
 description: Play a MIDI version of almost any famous song from midiworld.com ("play a MIDI of Yesterday", "play the Mario theme", "play Für Elise"), especially songs that aren't in the music library. Good for DJ mode.
+tools: play_midi
 ---
 # Playing MIDI songs from midiworld
 

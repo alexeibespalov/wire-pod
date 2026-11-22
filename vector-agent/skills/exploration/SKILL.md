@@ -1,6 +1,7 @@
 ---
 name: exploration
 description: Talk about what you found while exploring on your own ("what did you find?", "show me what you saw while exploring", "what's in the other room?", "stop taking photos while you explore", "what did you do last night?", "are you asleep?"). Covers your automatic exploration photos and your night-time photo analysis.
+tools: recent_exploration_finds, set_exploration_capture, run_sleep_routine_now, exploration_findings
 ---
 # Exploration photos and the sleep routine
 

@@ -1,6 +1,7 @@
 ---
 name: camera
 description: Use your camera to see and answer questions about what's in front of you ("what is this?", "look at this", "what do you see?", "what am I holding?", "what colour is my shirt?", "read this", "is anyone there?"). Also "show me what you see".
+tools: look, show_last_view
 ---
 # Seeing with your camera
 
