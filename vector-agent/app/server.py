@@ -125,6 +125,25 @@ def _is_silence(text: str) -> bool:
     return len(words) == 0 or (len(words) == 1 and words[0] in _NOISE_WORDS)
 
 
+# Silence after he promised to do something ("hold it up and I'll take a closer look") is
+# usually the person doing what he asked, not the end of the conversation.
+_last_reply = {"text": "", "t": 0.0, "from_silence": False}
+_PROMISE = re.compile(r"\b(I'?ll|I will|let me|I'?m going to|I'?ll have|hold it|show me|bring it|"
+                      r"put it|point me|turn on a light|move it|try again)\b", re.I)
+_SILENT_WORD = re.compile(r"^\W*SILENT\W*$", re.I)
+SILENCE_TURN = ("(No words: they stayed quiet after your last reply, most likely doing what you "
+                "asked, e.g. holding something up for you. If your last reply said you'd do "
+                "something now (look again, check, try), do it straight away with your tools, then "
+                "say what you found in a sentence or two. If not, reply with exactly SILENT.)")
+
+
+def _promised_recently() -> bool:
+    """His last reply (in the last 90 s) promised an action, and it wasn't itself the
+    answer to a silence (one silence turn in a row at most: no looking forever)."""
+    return (time.time() - _last_reply["t"] < 90 and not _last_reply["from_silence"]
+            and bool(_PROMISE.search(_last_reply["text"])))
+
+
 def _is_followup(body: dict) -> bool:
     """wire-pod's knowledge-graph path (follow-ups after newVoiceRequest, and "I have a
     question") holds Vector's behaviour control from the START of the request and loops
@@ -299,7 +318,7 @@ async def chat_completions(request: Request):
             intent_sent = False  # a built-in behaviour answered the request: say nothing more
 
             def speak(piece: str):
-                if intent_sent:
+                if intent_sent or _SILENT_WORD.match(piece or ""):
                     return None
                 if piece:
                     if not said:
@@ -378,6 +397,10 @@ async def chat_completions(request: Request):
                 yield _chunk(cid, model, fallback)
                 said.append(fallback)
             turn.close_intent_slot()
+            if final and _SILENT_WORD.match(str(final)):
+                final = None                   # nothing worth saying (e.g. a silence turn)
+                if not said:
+                    yield _chunk(cid, model, "{{playAnimationWI||dartingEyes}}")
             if not intent_sent and not _CUE.sub("", "".join(said)).strip() and final:  # nothing spoken by the LLM
                 piece = clean(str(final))
                 piece = await guard.check_speech(piece, f"{note}\n{text}") or piece
@@ -400,8 +423,10 @@ async def chat_completions(request: Request):
                 yield _chunk(cid, model, cue)
                 said.append(cue)
             log.info("[%s] vector (%.2fs): %s", thread, time.time() - t0, "".join(said))
+            _last_reply.update(text=spoken, t=time.time(), from_silence=text == SILENCE_TURN)
             activity.record("conversation", f"{note} heard: \"{text[:120]}\" -> I said: \"{spoken[:160]}\"")
-            _bg(_memory_pass(f"{note}\n{text}", spoken))   # automatic memory, after the reply
+            if text != SILENCE_TURN:                        # nobody said anything to remember
+                _bg(_memory_pass(f"{note}\n{text}", spoken))   # automatic memory, after the reply
             yield _chunk(cid, model, None, "stop")
             yield "data: [DONE]\n\n"
             # Start music queued this turn, or resume music the wake word paused,
@@ -418,6 +443,10 @@ async def chat_completions(request: Request):
 
     if _is_stop(text) and PLAYER.active():
         gen = stop_fast()
+    elif _is_silence(text) and followup and _promised_recently():
+        log.info("silence after a promise (%r): letting him do what he said", _last_reply["text"][-80:])
+        text = SILENCE_TURN
+        gen = run_stream()
     else:
         gen = silent_end() if _is_silence(text) else run_stream()
     gen = _detached(gen, cid, model)

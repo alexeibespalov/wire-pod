@@ -80,3 +80,18 @@ def test_program_steps_and_results():
                                        "notes": []}))
     assert r == {"moved_mm": 39, "turned_deg": 0, "prox_start_mm": 316, "prox_end_mm": 120, "duration_s": 1.5}
     assert all(t["allowed_callers"] == [programs.CODE_TOOL] for t in programs._BODY_TOOLS)
+
+
+def test_silence_after_promise_triggers_once():
+    import time as _t
+    from app import server
+    server._last_reply.update(text="Hold it up in a bit of light and I'll take a closer look.",
+                              t=_t.time(), from_silence=False)
+    assert server._promised_recently()
+    server._last_reply.update(from_silence=True)          # the answer to a silence: no second one
+    assert not server._promised_recently()
+    server._last_reply.update(text="Do you have a favourite colour?", t=_t.time(), from_silence=False)
+    assert not server._promised_recently()                 # a question isn't a promise
+    server._last_reply.update(text="I'll take a look.", t=_t.time() - 120)
+    assert not server._promised_recently()                 # too long ago
+    assert server._SILENT_WORD.match("SILENT.") and not server._SILENT_WORD.match("Silently, he")
