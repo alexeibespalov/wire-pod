@@ -812,6 +812,11 @@ class Batch:
             res.aborted, res.ok, res.code = hard, not hard, "stopped"
             if hard:
                 self.aborted = reason
+                try:
+                    from . import activity
+                    activity.record("body", f"{self.label}: stopped a {kind} because {reason}")
+                except Exception:
+                    pass
         elif task is not None:
             try:
                 res.code = task.result() or ""

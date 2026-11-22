@@ -264,6 +264,11 @@ async def run_session(force: bool = False, budget_s: float | None = None) -> dic
             _state["jobs"][j.name]["state"] = ctx.state
             _save_state()
             log.info("sleep: job %s -> %s", j.name, results[j.name])
+            try:
+                from . import activity
+                activity.record("sleep", f"while asleep: {j.name} -> {json.dumps(results[j.name])[:200]}")
+            except Exception:
+                pass
             if outcome.startswith("cancelled: he woke"):
                 break
         _state["last_session_end"] = time.time()

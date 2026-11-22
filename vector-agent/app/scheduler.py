@@ -29,7 +29,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from pydantic import Field
 
-from . import config, faces, robot, routines, turn
+from . import activity, config, faces, robot, routines, turn
 
 log = logging.getLogger("vector-agent")
 
@@ -162,6 +162,7 @@ async def _run(s: dict) -> None:
     _last_spoke[sid] = ctx.last_spoke
     summary = " | ".join(ctx.log)[-400:] or "(nothing happened)"
     log.info("schedule #%s run %d (%.1fs): %s", sid, s.get("runs", 0) + 1, time.time() - t0, summary)
+    activity.record("schedule", f"#{sid} {s['title']}: {summary[-220:]}")
     s["runs"] = s.get("runs", 0) + 1
     s["last_run"] = t0
     s["errors"] = 0 if ctx.ok else s.get("errors", 0) + 1
@@ -292,6 +293,7 @@ async def schedule_action(
     else:
         s.update(next_at=now + max(in_seconds, 0), max_runs=1)
     s["title"] = " ".join(title.split())[:60] or (routine or instruction[:40])
+    activity.record("schedule", f"scheduled #{s['id']} {s['title']} (asked by {s['by'] or 'someone'})")
     _schedules.append(s)
     _schedules[:] = [x for x in _schedules if x["status"] == "active"] + \
         [x for x in _schedules if x["status"] != "active"][-30:]   # keep a little history
@@ -327,6 +329,7 @@ async def cancel_schedule(which: Annotated[str, Field(description=(
                 f"; scheduled: {', '.join('#' + s['id'] + ' ' + s['title'] for s in acts)}" if acts else "")
     for s in hits:
         s["status"] = "cancelled"
+        activity.record("schedule", f"cancelled #{s['id']} {s['title']}")
         t = _running.get(s["id"])
         if t and not t.done():
             t.cancel()

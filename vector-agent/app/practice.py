@@ -26,7 +26,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from pydantic import Field
 
-from . import config, faces, routines, skills, sleep_routine, turn
+from . import activity, config, faces, guard, routines, skills, sleep_routine, turn
 
 log = logging.getLogger("vector-agent")
 
@@ -116,6 +116,8 @@ async def _call(name: str, args: dict, sess: dict) -> str:
     t = TOOLS_BY_NAME.get(name)
     if t is None or name not in PRACTICE_TOOLS:
         return f"error: {name} isn't available while practising"
+    if blocked := await guard.pre_tool(name, args, f"(practising on my own) goal: {sess['goal']}", "practice"):
+        return blocked
     if name in MOTION_TOOLS:
         if sess["tries"] >= sess["max_tries"]:
             return "error: no tries left; reply DONE with what you learned"
@@ -168,6 +170,7 @@ async def _run(sess: dict) -> None:
                 out = await _call(tc["name"], tc["args"], sess)
                 msgs.append(ToolMessage(content=out, tool_call_id=tc["id"], name=tc["name"]))
                 if tc["name"] in MOTION_TOOLS:
+                    activity.record("practice", f"{sess['goal'][:60]}: {tc['name']} -> {out[:150]}")
                     sess["log"].append(f"{tc['name']}: {out[:160]}")
                     sess["log"] = sess["log"][-12:]
                 if out.startswith("error: stopped:") and ("picked up" in out or "held" in out):
@@ -192,6 +195,7 @@ async def _run(sess: dict) -> None:
     sess["ended"] = time.time()
     _remember(sess)
     log.info("practice %s after %d tries: %s", sess["status"], sess["tries"], summary)
+    activity.record("practice", f"finished ({sess['status']}, {sess['tries']} tries): {summary}")
 
 
 def _start(goal: str, minutes: float, max_tries: int, by: str) -> dict:
@@ -202,6 +206,7 @@ def _start(goal: str, minutes: float, max_tries: int, by: str) -> dict:
                 "log": [], "summary": ""}
     _task = asyncio.get_running_loop().create_task(_run(_session), context=contextvars.Context())
     log.info("practice started: %s (%g min, %d tries)", goal, minutes, max_tries)
+    activity.record("practice", f"started practising: {goal} (asked by {by or 'nobody, on my own'})")
     return _session
 
 

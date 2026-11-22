@@ -8,6 +8,7 @@
 memory; `entrypoint.final(save=...)` stores the updated history.
 """
 import asyncio
+import json
 
 from langchain_core.messages import (AIMessage, AnyMessage, HumanMessage, SystemMessage,
                                      ToolMessage)
@@ -16,7 +17,7 @@ from langgraph.config import get_config
 from langgraph.func import entrypoint, task
 from langgraph.graph.message import add_messages
 
-from . import compaction, config, turn
+from . import activity, compaction, config, guard, turn
 from .prompt import build_system_prompt
 from .tools import TOOLS
 
@@ -32,6 +33,21 @@ llm = ChatOpenAI(
     timeout=60,
     max_retries=1,
 )
+
+
+_UNJOURNALED = {"recent_activity", "search_logs", "load_skill", "sense", "list_routines", "list_schedules",
+                "list_maneuvers", "show_maneuver", "practice_status", "now_playing", "sleep_routine_status"}
+
+
+def _brief(args: dict) -> str:
+    s = json.dumps(args, ensure_ascii=False)
+    return s if len(s) <= 120 else s[:117] + "..."
+
+
+def _request_text(messages: list[AnyMessage]) -> str:
+    """The latest things people said (newest first): context for the safety guard."""
+    said = [str(m.content) for m in reversed(messages) if isinstance(m, HumanMessage)]
+    return "\n---\n".join(said[:2])
 
 
 def _as_text(result) -> str:
@@ -61,18 +77,24 @@ def build_agent(checkpointer, extra_tools: list | None = None):
         return await llm_with_tools.ainvoke(messages)
 
     @task
-    async def call_tool(tool_call: dict) -> ToolMessage:
+    async def call_tool(tool_call: dict, request: str = "") -> ToolMessage:
         tool = tools_by_name.get(tool_call["name"])
+        blocked = None
         if tool is None:
             content = f"error: no tool called {tool_call['name']}"
         elif (turn.channel == "a2a" and tool.name in {"look", "show_last_view"}
               and not config.A2A_ALLOW_CAMERA):
             content = "error: your camera isn't available to remote agents (privacy setting)"
+        elif blocked := await guard.pre_tool(tool.name, tool_call["args"], request, turn.channel):
+            content = blocked            # safety laws: pre-hook said no
         else:
             try:
                 content = _as_text(await tool.ainvoke(tool_call["args"]))
             except Exception as e:  # report to the model, don't crash the turn
                 content = f"error: {e}"
+        if tool is not None and tool.name not in _UNJOURNALED and not blocked:
+            activity.record("tool", f"{tool.name}({_brief(tool_call['args'])}) -> {content[:140]}",
+                            channel=turn.channel)
         return ToolMessage(content=content, tool_call_id=tool_call["id"], name=tool_call["name"])
 
     @entrypoint(checkpointer=checkpointer)
@@ -88,7 +110,8 @@ def build_agent(checkpointer, extra_tools: list | None = None):
             messages = add_messages(messages, [response])
             if not response.tool_calls:
                 break
-            results = await asyncio.gather(*(call_tool(tc) for tc in response.tool_calls))
+            request = _request_text(messages)
+            results = await asyncio.gather(*(call_tool(tc, request) for tc in response.tool_calls))
             messages = add_messages(messages, list(results))
         else:
             # step budget exhausted mid-tool-loop: close the turn with plain text

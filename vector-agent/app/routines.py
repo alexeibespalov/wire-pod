@@ -32,7 +32,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from . import config, faces, robot, turn
+from . import config, faces, guard, robot, turn
 from .speech import clean
 
 log = logging.getLogger("vector-agent")
@@ -180,6 +180,7 @@ class RunCtx:
         self.last_spoke = last_spoke
         self.ok = True
         self.blind = False                    # the last camera look failed: don't make things up
+        self.request = ""                     # what this run is for (safety guard context)
 
 
 _camera_uses: deque[float] = deque()
@@ -219,6 +220,8 @@ async def speak(text: str, ctx: RunCtx) -> str:
     text = clean(re.sub(r"\{\{[^}]*\}\}", "", text)).strip()
     if not text or re.search(rf"\b{SILENT}\b", text):
         return "stayed quiet"
+    if (safe := await guard.check_speech(text, f"(background: {ctx.label}) {ctx.request}")) is not None:
+        return f"(not said: unsafe) {text[:80]}"
     if not ctx.speak:
         return f"(not spoken) {text}"
     now = time.time()
@@ -248,6 +251,9 @@ async def _call_tool(name: str, args: dict, ctx: RunCtx) -> str:
     t = _tools().get(name)
     if t is None:
         return f"error: tool {name} isn't available"
+    if blocked := await guard.pre_tool(name, args, f"(background: {ctx.label}) {ctx.request}", "background"):
+        ctx.ok = False
+        return blocked
     if name in CAMERA_TOOLS and not _camera_budget_ok():
         return "error: camera budget for this hour is used up"
     needs_control = name in turn.CONTROL_TOOLS or name == "run_maneuver"
@@ -340,6 +346,7 @@ async def run_routine(name: str, ctx: RunCtx) -> RunCtx:
         ctx.ok = False
         ctx.log.append(f"error: no routine called {name!r}")
         return ctx
+    ctx.request = ctx.request or f"routine {r['name']}: {r['description']}"
     await run_steps(validate_steps(r["steps"]), ctx)
     note_run(r["name"], ctx.ok)
     return ctx
@@ -347,6 +354,7 @@ async def run_routine(name: str, ctx: RunCtx) -> RunCtx:
 
 async def run_instruction(instruction: str, ctx: RunCtx, max_steps: int = 4) -> RunCtx:
     """A short background agent turn: plain-language instruction + the allowed tools."""
+    ctx.request = ctx.request or instruction
     tools = _tools()
     llm = _llm.bind_tools(list(tools.values()))
     msgs = [SystemMessage(_bg_system(ctx)),

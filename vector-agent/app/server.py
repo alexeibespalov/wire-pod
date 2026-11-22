@@ -24,7 +24,7 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
-from . import body, explore_capture, faces, library, navmap, practice, scheduler, sleep_routine, turn
+from . import activity, body, explore_capture, faces, guard, library, navmap, practice, scheduler, sleep_routine, turn
 from .audio import PLAYER
 
 def _setup_file_log() -> None:
@@ -53,7 +53,7 @@ _CUE = re.compile(r"\{\{.*?\}\}")
 _QUIET_STEP_TOOLS = {"play_music", "play_podcast", "play_midi", "stop_music", "load_skill",
                      "save_routine", "list_routines", "delete_routine", "schedule_action",
                      "list_schedules", "cancel_schedule", "create_skill", "update_skill",
-                     "forget_skill"}
+                     "forget_skill", "recent_activity", "search_logs"}
 _SEARCH_FILLERS = [
     "{{playAnimationWI||thinking}} Ooh, let me look that up. ",
     "{{playAnimationWI||thinking}} One sec, checking the internet. ",
@@ -268,6 +268,11 @@ async def chat_completions(request: Request):
                                 # music: playback starts after the reply, so narration
                                 # around these calls ("let me try again...") is just noise
                                 quiet_step = uses_control or bool(step_tools & _QUIET_STEP_TOOLS)
+                                if text_out.strip() and not quiet_step:
+                                    # safety laws, post-hook: check words before they're spoken
+                                    safe = await guard.check_speech(text_out, f"{note}\n{text}")
+                                    if safe is not None:
+                                        text_out = safe
                                 if not step_tools:
                                     out = speak(text_out)                      # the answer
                                 elif uses_control and turn.followup and not said:
@@ -301,6 +306,7 @@ async def chat_completions(request: Request):
                 said.append(fallback)
             if not _CUE.sub("", "".join(said)).strip() and final:  # nothing spoken by the LLM
                 piece = clean(str(final))
+                piece = await guard.check_speech(piece, f"{note}\n{text}") or piece
                 yield _chunk(cid, model, piece)
                 said.append(piece)
             # Deterministic conversation mode (see config.FOLLOW_UP_MODE): keep Vector
@@ -320,6 +326,7 @@ async def chat_completions(request: Request):
                 yield _chunk(cid, model, cue)
                 said.append(cue)
             log.info("[%s] vector (%.2fs): %s", thread, time.time() - t0, "".join(said))
+            activity.record("conversation", f"{note} heard: \"{text[:120]}\" -> I said: \"{spoken[:160]}\"")
             yield _chunk(cid, model, None, "stop")
             yield "data: [DONE]\n\n"
             # Start music queued this turn, or resume music the wake word paused,

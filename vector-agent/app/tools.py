@@ -25,6 +25,7 @@ from .routines import ROUTINE_TOOLS
 from .scheduler import SCHEDULE_TOOLS
 from .maneuvers import MANEUVER_TOOLS
 from .practice import PRACTICE_TOOL_LIST
+from .activity import ACTIVITY_TOOLS
 from .sleep_routine import run_sleep_routine_now, sleep_routine_status
 from .navmap import show_map, where_am_i
 from .explore import exploration_findings
@@ -187,7 +188,8 @@ TOOLS = [drive, turn, move_head, move_lift, do_action, set_eye_color, battery_st
          show_emoji, learn_face, forget_face, *MUSIC_TOOLS,
          recent_exploration_finds, set_exploration_capture, sleep_routine_status, run_sleep_routine_now,
          where_am_i, exploration_findings, show_map, *PLACE_TOOLS,
-         *MANEUVER_TOOLS, *PRACTICE_TOOL_LIST, *ROUTINE_TOOLS, *SCHEDULE_TOOLS, *SKILL_TOOLS]
+         *MANEUVER_TOOLS, *PRACTICE_TOOL_LIST, *ROUTINE_TOOLS, *SCHEDULE_TOOLS, *SKILL_TOOLS,
+         *ACTIVITY_TOOLS]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
 
