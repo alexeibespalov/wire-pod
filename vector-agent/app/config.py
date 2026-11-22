@@ -60,6 +60,10 @@ TAVILY_MCP_URL = _env("TAVILY_MCP_URL", "https://mcp.tavily.com/mcp/")
 # Only fast tools are exposed; crawl/map/research are far too slow for a spoken reply.
 TAVILY_TOOLS = [t.strip() for t in _env("TAVILY_TOOLS", "tavily_search,tavily_extract").split(",") if t.strip()]
 TAVILY_DEFAULTS = _env("TAVILY_DEFAULTS", '{"search_depth": "basic", "max_results": 5}')
+# Home Assistant's MCP Server integration (same Pi). Token: a long-lived access token of a
+# dedicated non-admin HA user; set in the Pi's .env profiles, never in git.
+HA_TOKEN = os.environ.get("HA_TOKEN", "").strip()
+HA_MCP_URL = _env("HA_MCP_URL", "http://127.0.0.1:8123/api/mcp")
 
 # --- Agent behaviour
 DATA_DIR = Path(_env("AGENT_DATA_DIR", "/data"))

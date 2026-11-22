@@ -95,3 +95,15 @@ def test_silence_after_promise_triggers_once():
     server._last_reply.update(text="I'll take a look.", t=_t.time() - 120)
     assert not server._promised_recently()                 # too long ago
     assert server._SILENT_WORD.match("SILENT.") and not server._SILENT_WORD.match("Silently, he")
+
+
+def test_home_skill_unlocks_all_home_tools(monkeypatch):
+    from langchain_core.messages import ToolMessage as TM
+    from app import skills
+    monkeypatch.setitem(skills.SKILLS, "home", {"name": "home", "tools": ["home_*"], "body": "", "description": ""})
+    avail = {n: None for n in ("drive", "battery_status", "home_HassTurnOn", "home_GetLiveContext", "tavily_search")}
+    before = agent.active_tool_names([], avail, ["tavily_search"])
+    assert not any(n.startswith("home_") for n in before) and "tavily_search" in before
+    loaded = [TM("SKILL home loaded. Follow these instructions:", tool_call_id="1", name="load_skill")]
+    after = agent.active_tool_names(loaded, avail, ["tavily_search"])
+    assert "home_HassTurnOn" in after and "home_GetLiveContext" in after

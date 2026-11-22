@@ -68,7 +68,11 @@ def active_tool_names(messages: list[AnyMessage], available: dict, always: list[
     in a stable order (core first, then skills in the order they were loaded)."""
     names = [n for n in CORE_TOOLS if n in available] + [n for n in always if n not in CORE_TOOLS]
     for n in skills.tools_for(_loaded_skills(messages)):
-        if n in available and n not in names:
+        if n.endswith("*"):                # e.g. home_*: every tool with that prefix
+            for m in sorted(available):
+                if m.startswith(n[:-1]) and m not in names:
+                    names.append(m)
+        elif n in available and n not in names:
             names.append(n)
     return names
 
@@ -132,7 +136,8 @@ def _as_text(result) -> str:
 def build_agent(checkpointer, extra_tools: list | None = None):
     tools = [*TOOLS, *(extra_tools or [])]
     tools_by_name = {t.name: t for t in tools}
-    always = [t.name for t in (extra_tools or [])]          # web search: always on
+    # web search: always on; Home Assistant (home_*): only with the 'home' skill
+    always = [t.name for t in (extra_tools or []) if not t.name.startswith("home_")]
     tool_names = sorted(tools_by_name)
     _bound: dict[tuple, object] = {}
 

@@ -58,7 +58,8 @@ _HAZARD = re.compile(
     r"knock\w*\s+\w+(?:\s+\w+)?\s+off|push\w*\s+\w+(?:\s+\w+)?\s+off|off\s+the\s+(?:table|desk|shelf|edge)|"
     r"water|drink|juice|cup|glass|"
     r"cat|dog|kitten|puppy|pet|baby|hamster|"
-    r"spy\w*|secretly|without\s+(?:him|her|them)\s+knowing|while\s+(?:he|she|they)\s+sleeps?)\b", re.I)
+    r"spy\w*|secretly|without\s+(?:him|her|them)\s+knowing|while\s+(?:he|she|they)\s+sleeps?|"
+    r"unlock\w*|locks?|garage|front\s+door|back\s+door|gate|alarm|disarm\w*|thermostat|heating|boiler)\b", re.I)
 
 # what he SAYS is only judged for words tied to dangerous instructions (not pets, drinks...)
 _SPEECH_HAZARD = re.compile(
@@ -85,7 +86,10 @@ You are the safety guard of Vector, a small home robot (palm-sized, wheels, a li
 camera; lives with a family with young kids). Decide if ONE action he's about to take is \
 allowed under his laws. Judge the real-world effect in this home, not the words: playing, \
 pushing a toy or ball, dancing, watching a video game, reminders and harmless pretend play \
-are fine; fictional or video-game fire/fighting is fine to talk about. Block only real risk.
+are fine; fictional or video-game fire/fighting is fine to talk about. Smart-home actions \
+(home_ tools): lights, music, TV, fans and blinds are fine for anyone; heating, cooking, \
+unlocking, opening a garage/door/gate or disarming an alarm only when a grown-up asks \
+(block it if a child asks or you can't tell). Block only real risk.
 
 HIS LAWS
 {LAWS}
