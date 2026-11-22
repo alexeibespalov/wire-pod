@@ -35,7 +35,8 @@ server_config points at `192.168.1.39:8443` (IP mode; the router doesn't relay m
 
 * `~/wire-pod/.env`: see `.env.example` (chmod 600)
 * `~/wire-pod/agent-data/`: agent state: `checkpoints.sqlite` (conversation threads),
-  `memories.json` (long-term facts), `thread.json` (current thread)
+  `memories.json` (long-term facts), `thread.json` (current thread),
+  `logs/agent.log` (conversations, tool calls, presence, errors; rotating 5 MB x 5)
 * `~/wire-pod/data/`: wire-pod state: settings, Vector's registration/session cert,
   speech model, SDK cert (`data/anki_vector/`)
 

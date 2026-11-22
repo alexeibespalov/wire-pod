@@ -25,8 +25,25 @@ from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
 from . import faces, turn
 
+def _setup_file_log() -> None:
+    """Keep the agent's own log (conversations, tools, presence, errors) on the data
+    volume so it survives container recreation. Rotating: 5 MB x 5 files."""
+    from logging.handlers import RotatingFileHandler
+    path = config.DATA_DIR / "logs" / "agent.log"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        h = RotatingFileHandler(path, maxBytes=config.LOG_MAX_BYTES, backupCount=config.LOG_BACKUPS,
+                                encoding="utf-8")
+    except OSError as e:
+        logging.getLogger("vector-agent").warning("file log disabled: %s", e)
+        return
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.getLogger("vector-agent").addHandler(h)
+
+
 log = logging.getLogger("vector-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+_setup_file_log()
 
 STATE = {"agent": None}
 _THREAD_FILE = config.DATA_DIR / "thread.json"

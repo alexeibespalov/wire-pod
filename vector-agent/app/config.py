@@ -66,6 +66,10 @@ A2A_PORT = int(_env("A2A_PORT", "8095"))
 A2A_PUBLIC_URL = _env("A2A_PUBLIC_URL", f"http://127.0.0.1:{A2A_PORT}").rstrip("/")
 A2A_ALLOW_CAMERA = _env("A2A_ALLOW_CAMERA", "0") == "1"
 
+# --- Persistent log file (agent-data/logs/agent.log, rotating)
+LOG_MAX_BYTES = int(_env("LOG_MAX_BYTES", str(5 * 1024 * 1024)))
+LOG_BACKUPS = int(_env("LOG_BACKUPS", "4"))
+
 # --- Server
 LISTEN_HOST = _env("LISTEN_HOST", "127.0.0.1")
 LISTEN_PORT = int(_env("LISTEN_PORT", "8091"))
