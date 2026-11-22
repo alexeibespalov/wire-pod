@@ -13,7 +13,9 @@ COPY app ./app
 COPY skills ./skills
 
 # runs as non-root; /data is the agent's state volume (threads, memories)
-RUN useradd -r -u 10001 agent && mkdir -p /data && chown agent /data
+# HOME holds .anki_vector/ (SDK config + cert, bind-mounted read-only) for the face watcher
+ENV HOME=/home/agent
+RUN useradd -r -u 10001 -d /home/agent agent && mkdir -p /data /home/agent && chown agent /data /home/agent
 USER agent
 
 CMD ["python", "-m", "app.server"]

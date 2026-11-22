@@ -23,7 +23,7 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
-from . import turn
+from . import faces, turn
 
 log = logging.getLogger("vector-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -117,6 +117,7 @@ def _user_text(body: dict) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    faces.start()  # background listen-only SDK connection for face presence
     mcp = await load_mcp_tools()
     async with AsyncSqliteSaver.from_conn_string(str(config.DATA_DIR / "checkpoints.sqlite")) as saver:
         STATE["agent"] = build_agent(saver, mcp)
@@ -240,7 +241,7 @@ async def chat_completions(request: Request):
             # listening after he speaks so follow-ups don't need "Hey Vector".
             full = "".join(said)
             spoken = _CUE.sub("", full).strip()
-            routine = "do_action" in tools_used  # don't listen while he dances etc.
+            routine = bool(tools_used & {"do_action", "learn_face"})  # don't listen while he dances etc.
             if config.FOLLOW_UP_MODE == "always":
                 want = bool(spoken) and not routine
             elif config.FOLLOW_UP_MODE == "questions":

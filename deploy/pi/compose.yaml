@@ -61,6 +61,10 @@ services:
       AGENT_TZ: Europe/London
     volumes:
       - ./agent-data:/data
+      # Vector SDK config + session cert (written by wire-pod) for the listen-only face watcher;
+      # the ini points the cert at /opt/.anki_vector, so mount it there too
+      - ./data/anki_vector:/home/agent/.anki_vector:ro
+      - ./data/anki_vector:/opt/.anki_vector:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)"]
       interval: 30s

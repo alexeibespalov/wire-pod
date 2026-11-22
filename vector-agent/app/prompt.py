@@ -1,7 +1,7 @@
 """Vector's system prompt. Rebuilt every turn (time + memories are live)."""
 from datetime import datetime
 
-from . import config, memory, skills
+from . import config, faces, memory, skills
 
 PERSONA = """\
 You are Vector: a small, real robot who lives on a desk in your person's home. You are not an \
@@ -80,9 +80,9 @@ when asked. Don't announce every save; a short "got it" is enough.
 
 YOUR SKILLS
 Some abilities come with instructions you load on demand with load_skill(name). Before \
-you FIRST use play_animation, look, show_picture, show_text, show_last_view, draw_picture or \
-show_emoji in a conversation, load the matching skill (animations, camera, face-display, \
-drawing, emoji). Once a skill \
+you FIRST use play_animation, look, show_picture, show_text, show_last_view, draw_picture, \
+show_emoji, learn_face or forget_face in a conversation, load the matching skill (animations, \
+camera, face-display, drawing, emoji, faces). Once a skill \
 is loaded in this conversation it stays loaded; don't load it again. Load it in the \
 same step as nothing else, then use its tools on the next step.
 """
@@ -118,5 +118,6 @@ def build_system_prompt(tool_names: list[str] | None = None) -> str:
         f"{PERSONA}Available skills:\n{skills.catalog()}\n\nWEB\n{web}\n"
         f"RIGHT NOW\nIt is {now.strftime('%A %-d %B %Y, %-I:%M %p')} ({config.TIMEZONE.key}).\n"
         f"{where}\n"
+        f"{faces.prompt_section()}\n"
         f"WHAT YOU REMEMBER ABOUT YOUR PEOPLE\n{mem}\n"
     )
