@@ -180,9 +180,11 @@ async def battery_status() -> str:
 # ------------------------------------------------------------------------- memory
 @tool
 def remember(fact: str) -> str:
-    """Save a fact about the user or household to long-term memory, written as a short
-    third-person sentence (e.g. "The user's sister is called Mia"). Use when the user
-    tells you something worth knowing later, or asks you to remember something."""
+    """Save a lasting fact about someone in the family or the home to long-term memory,
+    as a short third-person sentence that names who it's about (e.g. "Leo's favourite
+    game is Animal Crossing", "Alexei's sister is called Mia"). Use when someone tells you
+    something worth knowing on another day, or asks you to remember something. (Today's
+    chat is kept in your conversation notes anyway; this is for things that should last.)"""
     return memory.add(fact)
 
 

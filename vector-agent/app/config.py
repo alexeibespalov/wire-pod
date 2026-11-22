@@ -47,8 +47,14 @@ DATA_DIR = Path(_env("AGENT_DATA_DIR", "/data"))
 # (same host folder bind-mounted into both containers).
 FACE_DIR = DATA_DIR / "face"
 FACE_DIR_IN_WIREPOD = _env("FACE_DIR_IN_WIREPOD", "/face")
-THREAD_IDLE_MINUTES = float(_env("THREAD_IDLE_MINUTES", "180"))
-MAX_HISTORY_MESSAGES = int(_env("MAX_HISTORY_MESSAGES", "40"))
+THREAD_IDLE_MINUTES = float(_env("THREAD_IDLE_MINUTES", "0"))  # 0 = one continuous conversation
+# Conversation length: past HISTORY_TOKENS of history, the oldest part is folded into a
+# rolling summary (app/compaction.py) leaving about KEEP_TOKENS of recent messages.
+# ~16k tokens is roughly 100+ spoken exchanges and costs ~1 s extra first-word latency.
+HISTORY_TOKENS = int(_env("HISTORY_TOKENS", "16000"))
+KEEP_TOKENS = int(_env("KEEP_TOKENS", "8000"))
+SUMMARY_WORDS = int(_env("SUMMARY_WORDS", "400"))
+SLEEP_KEEP_TOKENS = int(_env("SLEEP_KEEP_TOKENS", "2500"))  # overnight: fold down to a short tail
 MAX_AGENT_STEPS = int(_env("MAX_AGENT_STEPS", "6"))
 # Keep listening after a reply (no "Hey Vector" needed for follow-ups):
 #   always    = after every spoken reply, except when a built-in routine was started

@@ -12,10 +12,11 @@ import asyncio
 from langchain_core.messages import (AIMessage, AnyMessage, HumanMessage, SystemMessage,
                                      ToolMessage)
 from langchain_openai import ChatOpenAI
+from langgraph.config import get_config
 from langgraph.func import entrypoint, task
 from langgraph.graph.message import add_messages
 
-from . import config, turn
+from . import compaction, config, turn
 from .prompt import build_system_prompt
 from .tools import TOOLS
 
@@ -31,18 +32,6 @@ llm = ChatOpenAI(
     timeout=60,
     max_retries=1,
 )
-
-
-def _trim(history: list[AnyMessage]) -> list[AnyMessage]:
-    """Keep the tail of the conversation, starting on a human turn so we never hand
-    the model an orphaned tool result."""
-    if len(history) <= config.MAX_HISTORY_MESSAGES:
-        return history
-    tail = history[-config.MAX_HISTORY_MESSAGES:]
-    for i, m in enumerate(tail):
-        if isinstance(m, HumanMessage):
-            return tail[i:]
-    return []
 
 
 def _as_text(result) -> str:
@@ -88,8 +77,10 @@ def build_agent(checkpointer, extra_tools: list | None = None):
 
     @entrypoint(checkpointer=checkpointer)
     async def vector_agent(user_text: str, *, previous: list[AnyMessage] | None = None):
-        messages = add_messages(_trim(previous or []), [HumanMessage(user_text)])
-        system = SystemMessage(build_system_prompt(tool_names))
+        thread = get_config()["configurable"]["thread_id"]
+        summary, history = compaction.prepare(thread, previous or [])
+        messages = add_messages(history, [HumanMessage(user_text)])
+        system = SystemMessage(build_system_prompt(tool_names, summary))
 
         response = None
         for _ in range(config.MAX_AGENT_STEPS):
@@ -104,6 +95,7 @@ def build_agent(checkpointer, extra_tools: list | None = None):
             response = AIMessage(content="Whoa, I got a bit tangled up there. Can you say that again?")
             messages = add_messages(messages, [response])
 
+        compaction.maybe_compact(thread, messages, llm)   # background, after the turn
         return entrypoint.final(value=response.content, save=messages)
 
     return vector_agent

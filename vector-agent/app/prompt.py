@@ -146,7 +146,7 @@ character but be clear and concise, and don't use {{...}} cues.
 """
 
 
-def build_system_prompt(tool_names: list[str] | None = None) -> str:
+def build_system_prompt(tool_names: list[str] | None = None, summary: str = "") -> str:
     now = datetime.now(config.TIMEZONE)
     facts = memory.all_facts()
     mem = "\n".join(f"- {f}" for f in facts) if facts else "- (nothing yet)"
@@ -163,4 +163,6 @@ def build_system_prompt(tool_names: list[str] | None = None) -> str:
         f"{places.prompt_section()}\n"
         f"{A2A_NOTE if turn.channel == 'a2a' else ''}"
         f"WHAT YOU REMEMBER ABOUT YOUR PEOPLE\n{mem}\n"
+        + (f"\nTHE CONVERSATION SO FAR (your own notes; the older messages were folded into "
+           f"them, the recent ones follow below)\n{summary}\n" if summary else "")
     )

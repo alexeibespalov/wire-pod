@@ -6,6 +6,7 @@ belong to the agent. Replies stream back as OpenAI chat.completion.chunk SSE so
 wire-pod can start speaking at the first sentence.
 """
 import asyncio
+from datetime import datetime
 import json
 import logging
 import random
@@ -69,19 +70,36 @@ _LOOK_FILLERS = [
 ]
 
 
-def _thread_id() -> str:
-    """Same thread while the conversation is live; a fresh one after a quiet spell."""
+def _thread_id() -> tuple[str, float]:
+    """(thread id, seconds since the last turn). One continuous conversation by default
+    (THREAD_IDLE_MINUTES=0): long histories are folded into a rolling summary by
+    app/compaction.py. Set THREAD_IDLE_MINUTES to start fresh after a quiet spell."""
     now = time.time()
     try:
         t = json.loads(_THREAD_FILE.read_text())
     except (FileNotFoundError, ValueError):
         t = {}
-    if not t.get("id") or now - t.get("last", 0) > config.THREAD_IDLE_MINUTES * 60:
+    gap = now - t.get("last", now)
+    idle = config.THREAD_IDLE_MINUTES * 60
+    if not t.get("id") or (idle > 0 and gap > idle):
         t = {"id": time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]}
         log.info("new conversation thread %s", t["id"])
     t["last"] = now
     _THREAD_FILE.write_text(json.dumps(t))
-    return t["id"]
+    return t["id"], gap
+
+
+def _stamp(eyes: str, gap: float) -> str:
+    """'(eyes: Leo is right in front of you)' -> '(eyes: ...; Sat 10:39 AM)', plus how long
+    it's been quiet when that matters, so the history shows time passing."""
+    when = datetime.now(config.TIMEZONE).strftime("%a %-I:%M %p")
+    if gap >= 36 * 3600:
+        when += f"; first words in {gap / 86400:.0f} days"
+    elif gap >= 2 * 3600:
+        when += f"; first words in {gap / 3600:.0f} hours"
+    elif gap >= 20 * 60:
+        when += f"; first words in {gap / 60:.0f} minutes"
+    return f"{eyes[:-1]}; {when})"
 
 
 _STOP = re.compile(r"^(?:please\s+)?(?:stop|pause|enough|quiet|be quiet|shush|turn it off|"
@@ -195,9 +213,10 @@ async def chat_completions(request: Request):
 
     async def run_stream():
         async with turn.lock():  # shared with A2A: one robot, one turn at a time
-            thread = _thread_id()
+            thread, gap = _thread_id()
+            note = _stamp(eyes, gap)
             cfg = {"configurable": {"thread_id": thread}}
-            log.info("[%s] user: %s %s", thread, eyes, text)
+            log.info("[%s] user: %s %s", thread, note, text)
             t0, said, final, tools_used = time.time(), [], None, set()
             PLAYER.turn_started()
             turn.reset(is_followup=followup)  # follow-up: wire-pod holds the robot from the start
@@ -219,7 +238,7 @@ async def chat_completions(request: Request):
                 return None
 
             try:
-                async for mode, data in STATE["agent"].astream(f"{eyes}\n{text}", cfg, stream_mode=["messages", "updates"]):
+                async for mode, data in STATE["agent"].astream(f"{note}\n{text}", cfg, stream_mode=["messages", "updates"]):
                     if mode == "messages":
                         msg, meta = data
                         # Only the agent's own model call speaks. Model calls made INSIDE
