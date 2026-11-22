@@ -161,10 +161,13 @@ def test_origin_change_aborts(rig):
     assert r.aborted and "relocalised" in r.stop_reason
 
 
-def test_unexpected_movement_aborts(rig):
+def test_unexpected_movement_ends_step_only(rig):
+    """Pushing something makes the wheels meet resistance ('unexpected movement'): that
+    step stops (motors stopped), but it isn't a hard abort, so a push can carry on."""
     rig.on_tick = lambda i: body.FEED.on_unexpected_movement() if i == 1 else None
     r = run(body.drive(100))
-    assert r.aborted and "unexpected" in r.stop_reason
+    assert not r.aborted and "bumped" in r.stop_reason
+    assert rig.stops >= 1
 
 
 def test_stale_feed_aborts_mid_motion(rig, monkeypatch):

@@ -56,6 +56,7 @@ SETTLE_S = 0.25        # wait (at most) this long for a fresh state sample after
 ACTION_TIMEOUT_S = _f("BODY_ACTION_TIMEOUT_S", 35)
 BORROW_PROBE_S = _f("BODY_BORROW_PROBE_S", 2.0)
 STRAY_WHEEL_MMPS = _f("BODY_STRAY_WHEEL_MMPS", 25)
+WHEEL_GRACE_S = _f("BODY_WHEEL_GRACE_S", 0.7)      # wheels still slowing down after a drive
 CONTROL_LINGER_S = _f("BODY_CONTROL_LINGER_S", 0.0)   # >0: keep control after a motion (off: may block his speech)  # keep control this long after a motion  # wheels this fast during a head/lift/wait step = abort    # no-op action must return this fast under control  # one gRPC action (a 300 mm crawl fits)
 TURN_SPEED_DPS = 100.0   # assumed turn rate (deg/s) for dry-run/timeouts
 HEAD_MIN_DEG, HEAD_MAX_DEG = -22.0, 45.0
@@ -774,8 +775,6 @@ class Batch:
             return "connection lost"
         if s["origin_id"] != self.start["origin_id"]:
             return "moved or relocalised"
-        if s["unexpected_seq"] != self.start["unexpected_seq"]:
-            return "unexpected movement"
         if time.monotonic() > self.deadline:
             return "time limit"
         if math.hypot(s["x"] - self.start["x"], s["y"] - self.start["y"]) > self.leash_mm:
@@ -835,7 +834,14 @@ class Batch:
                 if reason:
                     hard = True
                     break
-                if wheels_still and max(abs(s["wheel_l"]), abs(s["wheel_r"])) > STRAY_WHEEL_MMPS:
+                if s["unexpected_seq"] != a["unexpected_seq"]:
+                    # wheels met resistance: pushing something / bumped into it. Ends this
+                    # step only (pushing is often the point); picked up / held / cliff /
+                    # falling still abort everything above.
+                    reason = "bumped into something (unexpected movement)"
+                    break
+                if (wheels_still and time.monotonic() - t_start > WHEEL_GRACE_S
+                        and max(abs(s["wheel_l"]), abs(s["wheel_r"])) > STRAY_WHEEL_MMPS):
                     # this step doesn't use the wheels: something else is driving me (his own
                     # behaviours = we don't really have control)
                     reason, hard = "my wheels moved by themselves", True

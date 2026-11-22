@@ -31,7 +31,7 @@ from . import activity, config, faces, guard, routines, skills, sleep_routine, t
 log = logging.getLogger("vector-agent")
 
 PRACTICE_TOOLS = {"move", "sense", "look", "drive", "save_maneuver", "run_maneuver", "record_attempt",
-                  "tune", "list_maneuvers", "show_maneuver"}
+                  "tune", "list_maneuvers", "show_maneuver", "create_skill", "update_skill"}
 MOTION_TOOLS = {"move", "run_maneuver", "tune", "drive"}
 MAX_MINUTES = 30
 MAX_TRIES = 40
@@ -74,12 +74,22 @@ _SYSTEM = """\
 You are Vector, a small robot, PRACTISING A PHYSICAL SKILL ON YOUR OWN in the background. \
 Nobody is talking to you; don't chat, just practise. Goal: {goal}
 
-Work in small, safe tries: each turn, make ONE try (tool calls), read the measured result \
-(and look again if the result is visual), then write one short line: what happened and \
-what you'll change next. Save what works with save_maneuver (name by intent), run the saved \
-version, and record_attempt honestly. Use tune when one number needs searching. You have \
-{tries} tries and {minutes} minutes at most. When the goal is met (works twice in a row) or \
-you're stuck, reply with "DONE: <two sentences: what you learned and which maneuver to use>".
+How to practise:
+1. FIND it: look (head="down" for things on the desk); if it isn't in view, turn a little and \
+look again. Use sense("distance") to measure how far it is.
+2. LINE UP: turn so it's straight ahead, get close (stop_when prox_below_mm), small steps.
+3. TRY one small, gentle move; read the measured result (moved, distance ahead before/after, \
+"bumped into something" = you were pushing it), and look again if the result is visual.
+4. Save what works as a maneuver (save_maneuver, name by intent, params for the numbers), \
+including the lining-up part, not just the push.
+5. After EVERY run_maneuver, call record_attempt(name, success|partial|failure, note) in your \
+next step. Without it you don't learn anything.
+6. Change ONE thing per try. Use tune when one number needs searching.
+Write one short line per try: what happened and what you'll change next. You have {tries} \
+tries and {minutes} minutes at most. When it has worked twice in a row: if the goal says it \
+can become a skill, create_skill (name, description with the words people use, the recipe: \
+which maneuver(s) with which values, how to find and line up, gotchas). Then reply \
+"DONE: <two sentences: what you learned and which maneuver/skill to use>". Also DONE when stuck.
 
 === movement skill ===
 {movement}
@@ -250,7 +260,8 @@ async def start_practice(
     save maneuvers, repeat. Use STRAIGHT AWAY (no looking or moving first; the session does
     that itself) when someone says "practise ...", "learn to push/kick/...", "get better at
     ...". Then just tell them in a few words that you'll practise. You pause whenever
-    someone talks to you."""
+    someone talks to you. If they said it can become a skill once you're good at it, put
+    that in the goal ("... and make it a skill called pushing-blocks when it works")."""
     if active():
         return f"error: I'm already practising: {_session['goal']} (stop_practice first)"
     goal = " ".join(goal.split())[:300]
