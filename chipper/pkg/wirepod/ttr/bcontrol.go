@@ -3,6 +3,7 @@ package wirepod_ttr
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/fforchino/vector-go-sdk/pkg/vector"
 	"github.com/fforchino/vector-go-sdk/pkg/vectorpb"
@@ -22,8 +23,12 @@ func sayText(robot *vector.Vector, text string) {
 		stop := make(chan bool)
 		go func() {
 			// * begin - modified from official vector-go-sdk
+			// own context: the stream is closed when this goroutine ends (an abandoned
+			// stream fills Vector's gateway buffers until his gRPC stops answering)
+			bcCtx, bcCancel := context.WithCancel(context.Background())
+			defer bcCancel()
 			r, err := robot.Conn.BehaviorControl(
-				context.Background(),
+				bcCtx,
 			)
 			if err != nil {
 				log.Println(err)
@@ -57,6 +62,8 @@ func sayText(robot *vector.Vector, text string) {
 			); err != nil {
 				log.Println(err)
 			}
+			r.CloseSend()
+			time.Sleep(200 * time.Millisecond)
 			// * end - modified from official vector-go-sdk
 		}()
 		for range start {
@@ -84,8 +91,12 @@ func BControl(robot *vector.Vector, ctx context.Context, start, stop chan bool) 
 
 	go func() {
 		// * begin - modified from official vector-go-sdk
+		// own context: the stream is closed when this goroutine ends (an abandoned
+		// stream fills Vector's gateway buffers until his gRPC stops answering)
+		bcCtx, bcCancel := context.WithCancel(ctx)
+		defer bcCancel()
 		r, err := robot.Conn.BehaviorControl(
-			ctx,
+			bcCtx,
 		)
 		if err != nil {
 			logger.Println(err)
@@ -120,6 +131,8 @@ func BControl(robot *vector.Vector, ctx context.Context, start, stop chan bool) 
 		); err != nil {
 			logger.Println(err)
 		}
+		r.CloseSend()
+		time.Sleep(200 * time.Millisecond)
 		// * end - modified from official vector-go-sdk
 	}()
 }

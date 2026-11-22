@@ -10,8 +10,12 @@ import (
 )
 
 func InterruptKGSimWhenTouchedOrWaked(rob *vector.Vector, stop chan bool, stopStop chan bool) bool {
+	// own context, cancelled on return: this robot_state stream was left open after every
+	// LLM reply and its unread events jammed Vector's gateway (gRPC stopped answering)
+	evCtx, evCancel := context.WithCancel(context.Background())
+	defer evCancel()
 	strm, err := rob.Conn.EventStream(
-		context.Background(),
+		evCtx,
 		&vectorpb.EventRequest{
 			ListType: &vectorpb.EventRequest_WhiteList{
 				WhiteList: &vectorpb.FilterList{

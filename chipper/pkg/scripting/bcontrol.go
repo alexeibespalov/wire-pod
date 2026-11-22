@@ -2,6 +2,7 @@ package scripting
 
 import (
 	"context"
+	"time"
 
 	"github.com/fforchino/vector-go-sdk/pkg/vectorpb"
 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
@@ -29,8 +30,12 @@ func SetBControlFunctions(L *lua.LState) {
 		}
 		go func() {
 			// * begin - modified from official vector-go-sdk
+			// own context: the stream is closed when this goroutine ends (an abandoned
+			// stream fills Vector's gateway buffers until his gRPC stops answering)
+			bcCtx, bcCancel := context.WithCancel(context.Background())
+			defer bcCancel()
 			r, err := robot.Conn.BehaviorControl(
-				context.Background(),
+				bcCtx,
 			)
 			if err != nil {
 				logger.Println(err)
@@ -64,6 +69,8 @@ func SetBControlFunctions(L *lua.LState) {
 			); err != nil {
 				logger.Println(err)
 			}
+			r.CloseSend()
+			time.Sleep(200 * time.Millisecond)
 			// * end - modified from official vector-go-sdk
 		}()
 		for range start {

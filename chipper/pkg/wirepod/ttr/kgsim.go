@@ -489,8 +489,12 @@ func KGSim(esn string, textToSay string) error {
 
 		go func() {
 			// * begin - modified from official vector-go-sdk
+			// own context: the stream is closed when this goroutine ends (an abandoned
+			// stream fills Vector's gateway buffers until his gRPC stops answering)
+			bcCtx, bcCancel := context.WithCancel(ctx)
+			defer bcCancel()
 			r, err := robot.Conn.BehaviorControl(
-				ctx,
+				bcCtx,
 			)
 			if err != nil {
 				log.Println(err)
@@ -525,6 +529,8 @@ func KGSim(esn string, textToSay string) error {
 			); err != nil {
 				log.Println(err)
 			}
+			r.CloseSend()
+			time.Sleep(200 * time.Millisecond)
 			// * end - modified from official vector-go-sdk
 		}()
 

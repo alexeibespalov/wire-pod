@@ -30,6 +30,10 @@ services:
       # Upstream bug: settings saves replace the /data symlink -> lost on recreate.
       # This wrapper copies them back to ./data. See persist-sync.sh.
       - ./persist-sync.sh:/persist-sync.sh:ro
+      # Patched chipper: closes the gRPC streams upstream leaves open on every reply (they
+      # jam Vector's gateway after a few dozen turns). Built by chipper-patch/build.sh from
+      # this image's own source. To revert: delete this line and `docker compose up -d wire-pod`.
+      - ./chipper-patch/chipper:/opt/wire-pod/chipper/chipper:ro
       # Face-screen images written by vector-agent (agent-data/face), shown via Lua showImage("/face/..")
       - ./agent-data/face:/face:ro
       - /etc/localtime:/etc/localtime:ro

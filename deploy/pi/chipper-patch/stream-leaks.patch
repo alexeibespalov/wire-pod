@@ -1,0 +1,138 @@
+diff --git a/chipper/pkg/scripting/bcontrol.go b/chipper/pkg/scripting/bcontrol.go
+index 24b5aa9..49cfb40 100644
+--- a/chipper/pkg/scripting/bcontrol.go
++++ b/chipper/pkg/scripting/bcontrol.go
+@@ -2,6 +2,7 @@ package scripting
+ 
+ import (
+ 	"context"
++	"time"
+ 
+ 	"github.com/fforchino/vector-go-sdk/pkg/vectorpb"
+ 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
+@@ -29,8 +30,12 @@ func SetBControlFunctions(L *lua.LState) {
+ 		}
+ 		go func() {
+ 			// * begin - modified from official vector-go-sdk
++			// own context: the stream is closed when this goroutine ends (an abandoned
++			// stream fills Vector's gateway buffers until his gRPC stops answering)
++			bcCtx, bcCancel := context.WithCancel(context.Background())
++			defer bcCancel()
+ 			r, err := robot.Conn.BehaviorControl(
+-				context.Background(),
++				bcCtx,
+ 			)
+ 			if err != nil {
+ 				logger.Println(err)
+@@ -64,6 +69,8 @@ func SetBControlFunctions(L *lua.LState) {
+ 			); err != nil {
+ 				logger.Println(err)
+ 			}
++			r.CloseSend()
++			time.Sleep(200 * time.Millisecond)
+ 			// * end - modified from official vector-go-sdk
+ 		}()
+ 		for range start {
+diff --git a/chipper/pkg/wirepod/ttr/bcontrol.go b/chipper/pkg/wirepod/ttr/bcontrol.go
+index daca1d8..451e131 100644
+--- a/chipper/pkg/wirepod/ttr/bcontrol.go
++++ b/chipper/pkg/wirepod/ttr/bcontrol.go
+@@ -3,6 +3,7 @@ package wirepod_ttr
+ import (
+ 	"context"
+ 	"log"
++	"time"
+ 
+ 	"github.com/fforchino/vector-go-sdk/pkg/vector"
+ 	"github.com/fforchino/vector-go-sdk/pkg/vectorpb"
+@@ -22,8 +23,12 @@ func sayText(robot *vector.Vector, text string) {
+ 		stop := make(chan bool)
+ 		go func() {
+ 			// * begin - modified from official vector-go-sdk
++			// own context: the stream is closed when this goroutine ends (an abandoned
++			// stream fills Vector's gateway buffers until his gRPC stops answering)
++			bcCtx, bcCancel := context.WithCancel(context.Background())
++			defer bcCancel()
+ 			r, err := robot.Conn.BehaviorControl(
+-				context.Background(),
++				bcCtx,
+ 			)
+ 			if err != nil {
+ 				log.Println(err)
+@@ -57,6 +62,8 @@ func sayText(robot *vector.Vector, text string) {
+ 			); err != nil {
+ 				log.Println(err)
+ 			}
++			r.CloseSend()
++			time.Sleep(200 * time.Millisecond)
+ 			// * end - modified from official vector-go-sdk
+ 		}()
+ 		for range start {
+@@ -84,8 +91,12 @@ func BControl(robot *vector.Vector, ctx context.Context, start, stop chan bool)
+ 
+ 	go func() {
+ 		// * begin - modified from official vector-go-sdk
++		// own context: the stream is closed when this goroutine ends (an abandoned
++		// stream fills Vector's gateway buffers until his gRPC stops answering)
++		bcCtx, bcCancel := context.WithCancel(ctx)
++		defer bcCancel()
+ 		r, err := robot.Conn.BehaviorControl(
+-			ctx,
++			bcCtx,
+ 		)
+ 		if err != nil {
+ 			logger.Println(err)
+@@ -120,6 +131,8 @@ func BControl(robot *vector.Vector, ctx context.Context, start, stop chan bool)
+ 		); err != nil {
+ 			logger.Println(err)
+ 		}
++		r.CloseSend()
++		time.Sleep(200 * time.Millisecond)
+ 		// * end - modified from official vector-go-sdk
+ 	}()
+ }
+diff --git a/chipper/pkg/wirepod/ttr/kgsim.go b/chipper/pkg/wirepod/ttr/kgsim.go
+index 8c5f7c7..e43fad3 100644
+--- a/chipper/pkg/wirepod/ttr/kgsim.go
++++ b/chipper/pkg/wirepod/ttr/kgsim.go
+@@ -489,8 +489,12 @@ func KGSim(esn string, textToSay string) error {
+ 
+ 		go func() {
+ 			// * begin - modified from official vector-go-sdk
++			// own context: the stream is closed when this goroutine ends (an abandoned
++			// stream fills Vector's gateway buffers until his gRPC stops answering)
++			bcCtx, bcCancel := context.WithCancel(ctx)
++			defer bcCancel()
+ 			r, err := robot.Conn.BehaviorControl(
+-				ctx,
++				bcCtx,
+ 			)
+ 			if err != nil {
+ 				log.Println(err)
+@@ -525,6 +529,8 @@ func KGSim(esn string, textToSay string) error {
+ 			); err != nil {
+ 				log.Println(err)
+ 			}
++			r.CloseSend()
++			time.Sleep(200 * time.Millisecond)
+ 			// * end - modified from official vector-go-sdk
+ 		}()
+ 
+diff --git a/chipper/pkg/wirepod/ttr/kgsim_interrupt.go b/chipper/pkg/wirepod/ttr/kgsim_interrupt.go
+index 0f9daa3..c76ce14 100644
+--- a/chipper/pkg/wirepod/ttr/kgsim_interrupt.go
++++ b/chipper/pkg/wirepod/ttr/kgsim_interrupt.go
+@@ -10,8 +10,12 @@ import (
+ )
+ 
+ func InterruptKGSimWhenTouchedOrWaked(rob *vector.Vector, stop chan bool, stopStop chan bool) bool {
++	// own context, cancelled on return: this robot_state stream was left open after every
++	// LLM reply and its unread events jammed Vector's gateway (gRPC stopped answering)
++	evCtx, evCancel := context.WithCancel(context.Background())
++	defer evCancel()
+ 	strm, err := rob.Conn.EventStream(
+-		context.Background(),
++		evCtx,
+ 		&vectorpb.EventRequest{
+ 			ListType: &vectorpb.EventRequest_WhiteList{
+ 				WhiteList: &vectorpb.FilterList{
