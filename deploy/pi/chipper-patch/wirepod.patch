@@ -92,10 +92,56 @@ index daca1d8..451e131 100644
  	}()
  }
 diff --git a/chipper/pkg/wirepod/ttr/kgsim.go b/chipper/pkg/wirepod/ttr/kgsim.go
-index 8c5f7c7..e43fad3 100644
+index 8c5f7c7..778b064 100644
 --- a/chipper/pkg/wirepod/ttr/kgsim.go
 +++ b/chipper/pkg/wirepod/ttr/kgsim.go
-@@ -489,8 +489,12 @@ func KGSim(esn string, textToSay string) error {
+@@ -183,6 +183,13 @@ func findSentenceEnd(text string) (int, string) {
+ 	return -1, ""
+ }
+ 
++// An LLM reply that starts with {{doIntent||intent_play_fistbump}} answers Vector's voice
++// request with that built-in behaviour (any cloud intent: tricks, cube games, blackjack...)
++// instead of the greeting placeholder; wire-pod then stays out of the way so it can run.
++// Only possible on the intent-graph path (after "Hey Vector"): knowledge-graph requests
++// (follow-up listening) have already been answered and can't carry an intent.
++var doIntentRe = regexp.MustCompile(`\{\{doIntent\|\|(intent_[a-z_]+)\}\}`)
++
+ func StreamingKGSim(req interface{}, esn string, transcribedText string, isKG bool) (string, error) {
+ 	start := make(chan bool)
+ 	stop := make(chan bool)
+@@ -240,6 +247,7 @@ func StreamingKGSim(req interface{}, esn string, transcribedText string, isKG bo
+ 	}
+ 	speakReady := make(chan string)
+ 	successIntent := make(chan bool)
++	var requestedIntent string // set before the first successIntent send (channel orders it)
+ 
+ 	aireq := CreateAIReq(transcribedText, esn, false, isKG)
+ 
+@@ -279,6 +287,10 @@ func StreamingKGSim(req interface{}, esn string, transcribedText string, isKG bo
+ 		defer close(speakReady)
+ 		sentIntent := false
+ 		pushSentence := func(sentence string) {
++			if m := doIntentRe.FindStringSubmatch(sentence); m != nil && !sentIntent {
++				requestedIntent = m[1]
++			}
++			sentence = strings.TrimSpace(doIntentRe.ReplaceAllString(sentence, ""))
+ 			fullRespSlice = append(fullRespSlice, sentence)
+ 			if !sentIntent {
+ 				sentIntent = true
+@@ -352,6 +364,12 @@ func StreamingKGSim(req interface{}, esn string, transcribedText string, isKG bo
+ 	for is := range successIntent {
+ 		if is {
+ 			if !isKG {
++				if requestedIntent != "" {
++					logger.Println("LLM chose a built-in behaviour: " + requestedIntent)
++					logger.LogUI("LLM chose a built-in behaviour: " + requestedIntent)
++					IntentPass(req, requestedIntent, transcribedText, map[string]string{}, false)
++					return "", nil
++				}
+ 				IntentPass(req, "intent_greeting_hello", transcribedText, map[string]string{}, false)
+ 			}
+ 			break
+@@ -489,8 +507,12 @@ func KGSim(esn string, textToSay string) error {
  
  		go func() {
  			// * begin - modified from official vector-go-sdk
@@ -109,7 +155,7 @@ index 8c5f7c7..e43fad3 100644
  			)
  			if err != nil {
  				log.Println(err)
-@@ -525,6 +529,8 @@ func KGSim(esn string, textToSay string) error {
+@@ -525,6 +547,8 @@ func KGSim(esn string, textToSay string) error {
  			); err != nil {
  				log.Println(err)
  			}

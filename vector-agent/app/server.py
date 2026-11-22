@@ -287,7 +287,7 @@ async def chat_completions(request: Request):
             t0, said, final, tools_used = time.time(), [], None, set()
             PLAYER.turn_started()
             scheduler.on_turn_start()
-            turn.reset(is_followup=followup)  # follow-up: wire-pod holds the robot from the start
+            turn.reset(is_followup=followup, voice_turn=True)  # follow-up: wire-pod holds the robot from the start
             if followup:
                 log.info("[%s] follow-up (knowledge-graph path): wire-pod holds control", thread)
             # Text from one model step is held until the step ends, because only then do we
@@ -295,8 +295,11 @@ async def chat_completions(request: Request):
             # shown over his talking face comes out black; see app/turn.py).
             step_text: list[str] = []
             step_tools: set[str] = set()
+            intent_sent = False  # a built-in behaviour answered the request: say nothing more
 
             def speak(piece: str):
+                if intent_sent:
+                    return None
                 if piece:
                     if not said:
                         log.info("[%s] first words after %.2fs", thread, time.time() - t0)
@@ -356,6 +359,13 @@ async def chat_completions(request: Request):
                                 step_text, step_tools = [], set()
                             elif node == "call_tool":
                                 tools_used.add(getattr(val, "name", ""))
+                                if turn.pending_intent and not intent_sent:
+                                    # the whole answer: wire-pod sends this intent to Vector
+                                    intent_sent = True
+                                    cue = "{{doIntent||" + turn.pending_intent + "}}."
+                                    log.info("[%s] answering with built-in behaviour %s", thread, turn.pending_intent)
+                                    said.append(cue)
+                                    yield _chunk(cid, model, cue)
                                 if config.DEBUG:
                                     log.info("[%s] tool -> %s", thread, getattr(val, "content", val))
                             elif node == "vector_agent":
@@ -365,7 +375,8 @@ async def chat_completions(request: Request):
                 fallback = "{{playAnimationWI||confused}} Hmm, my brain glitched for a second. Try me again?"
                 yield _chunk(cid, model, fallback)
                 said.append(fallback)
-            if not _CUE.sub("", "".join(said)).strip() and final:  # nothing spoken by the LLM
+            turn.close_intent_slot()
+            if not intent_sent and not _CUE.sub("", "".join(said)).strip() and final:  # nothing spoken by the LLM
                 piece = clean(str(final))
                 piece = await guard.check_speech(piece, f"{note}\n{text}") or piece
                 yield _chunk(cid, model, piece)

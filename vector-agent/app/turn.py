@@ -32,6 +32,12 @@ wirepod_has_control = False
 followup = False          # knowledge-graph path: wire-pod loops a "searching" animation
 lead_in_at: float = 0.0   # when we sent the short spoken lead-in (stops that loop)
 LEAD_IN_SECONDS = 2.0     # time to let the lead-in be spoken before using the face
+# Built-in behaviours (fist bump, tricks, cube games) start only as the ANSWER to Vector's
+# voice request. After "Hey Vector" (not follow-up listening) that answer is still unsent
+# until his first words, so a tool may claim it: the server then replies with
+# {{doIntent||<intent>}} and nothing else (wire-pod's patched chipper sends the intent).
+intent_slot_open = False
+pending_intent = ""
 
 
 _lock: asyncio.Lock | None = None
@@ -64,17 +70,36 @@ async def hold(wait_s: float):
         lk.release()
 
 
-def reset(is_followup: bool = False, via: str = "voice") -> None:
-    global wirepod_has_control, followup, lead_in_at, channel
+def reset(is_followup: bool = False, via: str = "voice", voice_turn: bool = False) -> None:
+    global wirepod_has_control, followup, lead_in_at, channel, intent_slot_open, pending_intent
     channel = via
     wirepod_has_control = is_followup
     followup = is_followup
     lead_in_at = 0.0
+    intent_slot_open = voice_turn and via == "voice" and not is_followup
+    pending_intent = ""
+
+
+def claim_intent(intent: str) -> bool:
+    """Use this voice turn's answer to start a built-in behaviour. False if it's gone
+    (follow-up listening, he already spoke, not a voice turn, or already claimed)."""
+    global pending_intent, intent_slot_open
+    if not intent_slot_open or wirepod_has_control or pending_intent:
+        return False
+    pending_intent = intent
+    intent_slot_open = False
+    return True
+
+
+def close_intent_slot() -> None:
+    global intent_slot_open
+    intent_slot_open = False
 
 
 def mark_wirepod_control() -> None:
-    global wirepod_has_control
+    global wirepod_has_control, intent_slot_open
     wirepod_has_control = True
+    intent_slot_open = False  # he has spoken: the voice request is answered
 
 
 def mark_lead_in() -> None:

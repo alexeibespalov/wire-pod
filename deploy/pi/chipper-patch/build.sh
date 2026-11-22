@@ -7,6 +7,10 @@
 # The streams pile up until the wire-pod<->robot connection idles out; with kids chatting
 # nonstop it never does, Vector's gateway buffers fill (~37 streams) and his gRPC stops
 # answering: wire-pod hangs on BatteryState, cloud-with-X face, no replies.
+# Also: the LLM can start any built-in behaviour (fist bump, tricks, cube games) by
+# starting its reply with {{doIntent||intent_...}} (see ttr/kgsim.go).
+#
+# wirepod.patch = `git diff 676ae98 -- chipper/pkg` (676ae98 = pristine upstream chipper).
 #
 # Run on the Pi after the upstream image changes:  ~/wire-pod/chipper-patch/build.sh
 # Revert: remove the chipper bind-mount line from compose.yaml and `docker compose up -d`.
@@ -26,7 +30,7 @@ getGo
 cd chipper
 export CGO_ENABLED=1 CGO_CFLAGS="-I${VOSK_DIR}" CGO_LDFLAGS="-L ${VOSK_DIR} -lvosk -ldl -lpthread"
 "$GO" build -tags nolibopusfile \
-  -ldflags "-X github.com/kercre123/wire-pod/chipper/pkg/vars.CommitSHA=$(git rev-parse --short HEAD)-streamfix" \
+  -ldflags "-X github.com/kercre123/wire-pod/chipper/pkg/vars.CommitSHA=$(git rev-parse --short HEAD)-patched" \
   -o /patch/chipper.new cmd/vosk/main.go
 mv /patch/chipper.new /patch/chipper
 echo "built $(ls -la /patch/chipper)"'

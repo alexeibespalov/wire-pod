@@ -119,16 +119,18 @@ _ACTIONS = {
     "pick up cube": "intent_imperative_fetchcube",
     "recognize the user": "intent_names_ask",
 }
-# Built-in behaviours that only start from a spoken command (a cloud intent, which can't be
-# sent from here): the person has to say the phrase to him directly.
-_SAY_IT = {
-    "fist bump": "fist bump",
-    "do a trick": "show me a trick",
-    "pop a wheelie": "pop a wheelie",
-    "roll cube": "roll your cube",
-    "take a photo": "take a photo of me",
-    "play blackjack": "play blackjack",
-    "play keepaway": "keep away",
+# Built-in behaviours that only start as the answer to a voice request (cloud intents).
+# Right after "Hey Vector" the agent can still give that answer (turn.claim_intent): the
+# server replies {{doIntent||...}} and wire-pod's patched chipper sends the intent. In
+# follow-up listening the request is already answered, so the person must say the phrase.
+_CLOUD = {
+    "fist bump": ("intent_play_fistbump", "fist bump"),
+    "do a trick": ("intent_play_anytrick", "show me a trick"),
+    "pop a wheelie": ("intent_play_popawheelie", "pop a wheelie"),
+    "roll cube": ("intent_play_rollcube", "roll your cube"),
+    "take a photo": ("intent_photo_take_extend", "take a photo of me"),
+    "play blackjack": ("intent_play_blackjack", "play blackjack"),
+    "play keepaway": ("intent_play_keepaway", "keep away"),
 }
 
 
@@ -141,11 +143,18 @@ async def do_action(action: Literal[
     """Start one of Vector's own built-in behaviours (his real personality routines,
     with full animation and sound). It starts right after you reply, so keep your
     spoken reply short when you use this. Your cube: find cube / fetch cube (find it,
-    pick it up and bring it). You recognise the cube by sight (its markings), so you can
-    see it even when its battery is flat; only its lights, taps and shakes need the battery."""
-    if action in _SAY_IT:
-        return (f"can't start '{action}' myself: it only starts when someone says "
-                f"\"Hey Vector, {_SAY_IT[action]}\" to me directly. Tell them that, in a few words.")
+    pick it up and bring it), roll cube. You recognise the cube by sight (its markings),
+    so you can see it even when its battery is flat; only its lights, taps and shakes
+    need the battery. Fist bump, trick, wheelie, roll cube, photo, blackjack and keepaway
+    must be your FIRST action, before you say anything."""
+    if action in _CLOUD:
+        from . import turn
+        intent, phrase = _CLOUD[action]
+        if turn.claim_intent(intent):
+            return (f"starting '{action}' now, as your whole answer: your words this turn "
+                    f"won't be spoken, so just finish without saying anything.")
+        return (f"can't start '{action}' right now: it only starts at the very beginning of "
+                f"a request. Ask them to say \"Hey Vector, {phrase}\". Tell them that, in a few words.")
     await _sdk("cloud_intent", intent=_ACTIONS[action])
     return f"started: {action}"
 
