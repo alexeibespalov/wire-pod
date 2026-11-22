@@ -73,8 +73,12 @@ func InterruptKGSimWhenTouchedOrWaked(rob *vector.Vector, stop chan bool, stopSt
 					valsAboveValue = 0
 				}
 			case *vectorpb.Event_WakeWord:
-				logger.Println("Interrupting LLM response (source: wake word)")
-				stopResponse = true
+				// Only a NEW "Hey Vector" interrupts. The wake_word_end of the request being
+				// answered can arrive after a fast reply has started and used to cut it off.
+				if resp.Event.GetWakeWord().GetWakeWordBegin() != nil {
+					logger.Println("Interrupting LLM response (source: wake word)")
+					stopResponse = true
+				}
 			default:
 			}
 			if valsAboveValue > valsAboveValueMax {
