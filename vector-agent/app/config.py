@@ -59,6 +59,13 @@ TIMEZONE = ZoneInfo(_env("AGENT_TZ", "Europe/London"))
 # Where Vector lives: default for weather/local questions. Set in the Pi's .env (kept out of git).
 HOME_LOCATION = os.environ.get("AGENT_LOCATION", "").strip()
 
+# --- A2A (Agent2Agent) server: lets other agents talk to Vector. Disabled unless a token is set.
+A2A_TOKEN = os.environ.get("A2A_TOKEN", "").strip()
+A2A_HOST = _env("A2A_HOST", "0.0.0.0")
+A2A_PORT = int(_env("A2A_PORT", "8095"))
+A2A_PUBLIC_URL = _env("A2A_PUBLIC_URL", f"http://127.0.0.1:{A2A_PORT}").rstrip("/")
+A2A_ALLOW_CAMERA = _env("A2A_ALLOW_CAMERA", "0") == "1"
+
 # --- Server
 LISTEN_HOST = _env("LISTEN_HOST", "127.0.0.1")
 LISTEN_PORT = int(_env("LISTEN_PORT", "8091"))

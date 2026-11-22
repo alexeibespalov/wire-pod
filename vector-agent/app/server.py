@@ -29,7 +29,6 @@ log = logging.getLogger("vector-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 STATE = {"agent": None}
-_turn_lock = asyncio.Lock()  # one robot, one conversation at a time
 _THREAD_FILE = config.DATA_DIR / "thread.json"
 _CUE = re.compile(r"\{\{.*?\}\}")
 _SEARCH_FILLERS = [
@@ -158,7 +157,7 @@ async def chat_completions(request: Request):
         yield "data: [DONE]\n\n"
 
     async def run_stream():
-        async with _turn_lock:
+        async with turn.lock():  # shared with A2A: one robot, one turn at a time
             thread = _thread_id()
             cfg = {"configurable": {"thread_id": thread}}
             log.info("[%s] user: %s", thread, text)
@@ -274,7 +273,23 @@ async def chat_completions(request: Request):
 
 def main():
     import uvicorn
-    uvicorn.run(app, host=config.LISTEN_HOST, port=config.LISTEN_PORT, log_level="warning")
+
+    servers = [uvicorn.Server(uvicorn.Config(app, host=config.LISTEN_HOST, port=config.LISTEN_PORT,
+                                             log_level="warning"))]
+    if config.A2A_TOKEN:
+        from .a2a_server import build_app
+        a2a_app = build_app(lambda: STATE["agent"])
+        servers.append(uvicorn.Server(uvicorn.Config(a2a_app, host=config.A2A_HOST,
+                                                     port=config.A2A_PORT, log_level="warning")))
+        log.info("A2A server on %s:%s (card: %s/.well-known/agent-card.json)",
+                 config.A2A_HOST, config.A2A_PORT, config.A2A_PUBLIC_URL)
+    else:
+        log.info("A2A disabled (no A2A_TOKEN)")
+
+    async def serve_all():
+        await asyncio.gather(*(s.serve() for s in servers))
+
+    asyncio.run(serve_all())
 
 
 if __name__ == "__main__":

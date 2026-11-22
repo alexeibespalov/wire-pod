@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.func import entrypoint, task
 from langgraph.graph.message import add_messages
 
-from . import config
+from . import config, turn
 from .prompt import build_system_prompt
 from .tools import TOOLS
 
@@ -76,6 +76,9 @@ def build_agent(checkpointer, extra_tools: list | None = None):
         tool = tools_by_name.get(tool_call["name"])
         if tool is None:
             content = f"error: no tool called {tool_call['name']}"
+        elif (turn.channel == "a2a" and tool.name in {"look", "show_last_view"}
+              and not config.A2A_ALLOW_CAMERA):
+            content = "error: your camera isn't available to remote agents (privacy setting)"
         else:
             try:
                 content = _as_text(await tool.ainvoke(tool_call["args"]))

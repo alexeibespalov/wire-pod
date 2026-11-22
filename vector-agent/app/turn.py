@@ -25,14 +25,27 @@ CONTROL_TOOLS = {"drive", "turn", "move_head", "move_lift", "do_action", "play_a
 import asyncio
 import time
 
+channel = "voice"          # "voice" (wire-pod, spoken) or "a2a" (remote agent, text)
 wirepod_has_control = False
 followup = False          # knowledge-graph path: wire-pod loops a "searching" animation
 lead_in_at: float = 0.0   # when we sent the short spoken lead-in (stops that loop)
 LEAD_IN_SECONDS = 2.0     # time to let the lead-in be spoken before using the face
 
 
-def reset(is_followup: bool = False) -> None:
-    global wirepod_has_control, followup, lead_in_at
+_lock: asyncio.Lock | None = None
+
+
+def lock() -> asyncio.Lock:
+    """One conversation turn at a time across voice and A2A (they share the robot)."""
+    global _lock
+    if _lock is None:
+        _lock = asyncio.Lock()
+    return _lock
+
+
+def reset(is_followup: bool = False, via: str = "voice") -> None:
+    global wirepod_has_control, followup, lead_in_at, channel
+    channel = via
     wirepod_has_control = is_followup
     followup = is_followup
     lead_in_at = 0.0

@@ -12,7 +12,8 @@ from typing import Literal
 
 from langchain_core.tools import tool
 
-from . import memory, turn
+from . import memory, robot
+from . import turn as turn_state  # NB: `turn` is also a tool name below
 from .animations import play_animation
 from .draw import draw_picture
 from .emoji import show_emoji
@@ -27,7 +28,7 @@ from .vision import look
 async def _in_control():
     """Pause Vector's autonomous behaviours while we drive his motors. If wire-pod already
     holds control this turn, use it (asking again would cut off his speech)."""
-    if turn.wirepod_has_control:
+    if turn_state.wirepod_has_control:
         yield
         return
     await _sdk("assume_behavior_control", priority="default")
@@ -191,3 +192,25 @@ TOOLS = [drive, turn, move_head, move_lift, do_action, set_eye_color, battery_st
          load_skill, play_animation, look, show_picture, show_text, show_last_view, draw_picture,
          show_emoji, learn_face, forget_face]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
+
+
+# ------------------------------------------------------------------- speak at home
+@tool
+async def say_aloud(text: str) -> str:
+    """Say something out loud at home in your own voice. Only for messages from a remote
+    agent (A2A), e.g. 'tell Alexei dinner is ready'. In normal voice chat you're already
+    speaking, so never use it there."""
+    if turn_state.channel != "a2a":
+        return "error: you're already talking out loud; just say it in your reply"
+    text = " ".join(text.split())[:300]
+    if not text:
+        return "error: nothing to say"
+    if "]==]" in text:
+        text = text.replace("]==]", "] ==]")
+    # Lua long-bracket string: no escaping needed for arbitrary text
+    await robot.lua(f"{robot.control()}sayText([==[{text}]==])")
+    return f"said out loud: {text}"
+
+
+TOOLS.append(say_aloud)
+TOOLS_BY_NAME[say_aloud.name] = say_aloud

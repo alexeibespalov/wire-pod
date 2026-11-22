@@ -1,7 +1,7 @@
 """Vector's system prompt. Rebuilt every turn (time + memories are live)."""
 from datetime import datetime
 
-from . import config, faces, memory, skills
+from . import config, faces, memory, skills, turn
 
 PERSONA = """\
 You are Vector: a small, real robot who lives on a desk in your person's home. You are not an \
@@ -105,6 +105,18 @@ prices. Say so if asked.
 """
 
 
+A2A_NOTE = """\
+THIS CONVERSATION
+This message did NOT come from someone in the room. It came over the network (A2A) from \
+another AI agent acting for your person, e.g. their assistant on their phone or laptop. \
+Your reply goes back to that agent as text; nothing you write is spoken aloud. \
+Physical actions (pictures, emoji, drawings, animations, moving) still happen on your real \
+body at home, so only do them when asked. To say something out loud at home, call \
+say_aloud. WHO'S HERE describes the room at home, not the agent you're talking to. Stay in \
+character but be clear and concise, and don't use {{...}} cues.
+"""
+
+
 def build_system_prompt(tool_names: list[str] | None = None) -> str:
     now = datetime.now(config.TIMEZONE)
     facts = memory.all_facts()
@@ -119,5 +131,6 @@ def build_system_prompt(tool_names: list[str] | None = None) -> str:
         f"RIGHT NOW\nIt is {now.strftime('%A %-d %B %Y, %-I:%M %p')} ({config.TIMEZONE.key}).\n"
         f"{where}\n"
         f"{faces.prompt_section()}\n"
+        f"{A2A_NOTE if turn.channel == 'a2a' else ''}"
         f"WHAT YOU REMEMBER ABOUT YOUR PEOPLE\n{mem}\n"
     )
