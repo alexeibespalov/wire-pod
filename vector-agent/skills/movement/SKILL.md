@@ -39,6 +39,10 @@ Each step is an object with a "step" key:
 - `{"step":"if","sensor":{"prox_below_mm":80},"then":[...],"else":[...]}`: branch on a sensor
   (prox_below_mm, touch, or cube_visible).
 - A drive may stop early: `"stop_when":{"prox_below_mm":40}` (or touch, cube_moved).
+- Your cube: cube_visible comes from your camera (works any time you can see it).
+  cube_moved / cube_tapped / up_axis come from the cube itself over Bluetooth and need its
+  battery: if they never change, its battery is probably flat, so judge with `look` and
+  the distance sensor instead.
 
 Limits: a whole run is at most 60 seconds and 200 expanded steps. If you ask for more than a
 limit allows it is trimmed and the answer tells you ("capped"). Keep moves small.

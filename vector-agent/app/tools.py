@@ -104,35 +104,48 @@ async def move_lift(direction: Literal["up", "down"]) -> str:
 
 
 # --------------------------------------------------------------- built-in actions
+# wire-pod's /api-sdk/cloud_intent sends an AppIntent, and Vector only accepts the app
+# intents listed in his user_intent_map.json (checked on the robot 2026-11-22). Anything
+# else is silently ignored ("No match for app intent"), so only these can be started here.
 _ACTIONS = {
     "dance": "intent_imperative_dance",
-    "fist bump": "intent_play_fistbump",
     "go to charger": "intent_system_charger",
     "go to sleep": "intent_system_sleep",
-    "explore": "intent_explore_start",
+    "explore": "explore_start",
     "come to the user": "intent_imperative_come",
     "look at the user": "intent_imperative_lookatme",
-    "do a trick": "intent_play_anytrick",
-    "pop a wheelie": "intent_play_popawheelie",
     "find cube": "intent_imperative_findcube",
-    "roll cube": "intent_play_rollcube",
-    "pick up cube": "intent_play_pickupcube",
-    "take a photo": "intent_photo_take_extend",
-    "play blackjack": "intent_play_blackjack",
-    "play keepaway": "intent_play_keepaway",
+    "fetch cube": "intent_imperative_fetchcube",   # find it, pick it up, bring it over
+    "pick up cube": "intent_imperative_fetchcube",
     "recognize the user": "intent_names_ask",
+}
+# Built-in behaviours that only start from a spoken command (a cloud intent, which can't be
+# sent from here): the person has to say the phrase to him directly.
+_SAY_IT = {
+    "fist bump": "fist bump",
+    "do a trick": "show me a trick",
+    "pop a wheelie": "pop a wheelie",
+    "roll cube": "roll your cube",
+    "take a photo": "take a photo of me",
+    "play blackjack": "play blackjack",
+    "play keepaway": "keep away",
 }
 
 
 @tool
 async def do_action(action: Literal[
     "dance", "fist bump", "go to charger", "go to sleep", "explore", "come to the user",
-    "look at the user", "do a trick", "pop a wheelie", "find cube", "roll cube",
+    "look at the user", "do a trick", "pop a wheelie", "find cube", "fetch cube", "roll cube",
     "pick up cube", "take a photo", "play blackjack", "play keepaway", "recognize the user",
 ]) -> str:
     """Start one of Vector's own built-in behaviours (his real personality routines,
     with full animation and sound). It starts right after you reply, so keep your
-    spoken reply short when you use this."""
+    spoken reply short when you use this. Your cube: find cube / fetch cube (find it,
+    pick it up and bring it). You recognise the cube by sight (its markings), so you can
+    see it even when its battery is flat; only its lights, taps and shakes need the battery."""
+    if action in _SAY_IT:
+        return (f"can't start '{action}' myself: it only starts when someone says "
+                f"\"Hey Vector, {_SAY_IT[action]}\" to me directly. Tell them that, in a few words.")
     await _sdk("cloud_intent", intent=_ACTIONS[action])
     return f"started: {action}"
 
