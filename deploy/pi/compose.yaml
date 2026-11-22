@@ -19,11 +19,11 @@ services:
       WIREPOD_STT_SERVICE: vosk
       WIREPOD_STT_LANGUAGE: en-US
       WIREPOD_USE_INBUILT_BLE: "false"
-      # TEMPORARY: keep the last 60 requests' audio + Vosk transcript (local only) to
-      # benchmark Whisper models on real speech. Delete these two lines and
-      # ~/wire-pod/data/stt-samples when done.
-      STT_CAPTURE_DIR: /data/stt-samples
-      STT_CAPTURE_MAX: "60"
+      # Speech-to-text: Whisper (vector-whisper below) with Vosk as the instant fallback.
+      # Benchmarked on real requests (deploy/pi/stt-bench): whisper.cpp base.en with a 15 s
+      # window fixed Vosk's mistakes at ~1.8 s per request. Remove to go back to Vosk only.
+      WHISPER_HTTP: http://127.0.0.1:10330
+      WHISPER_TIMEOUT: "6"
     volumes:
       - ./data:/data
       # SDK info (session cert + sdk_config.ini) wire-pod writes for Python/Go SDK clients
@@ -55,6 +55,18 @@ services:
   # wire-pod Knowledge provider = Custom, endpoint http://127.0.0.1:8091/v1 (localhost only),
   # dummy key. Real LLM key + upstream live in ./.env (chmod 600).
   # State (conversation threads, memories) in ./agent-data.
+  # Vector's own Whisper (whisper.cpp server, base.en loaded once), localhost only. Separate
+  # from Home Assistant's Whisper container. Build: ./whisper-cpp/build.sh
+  vector-whisper:
+    image: ghcr.io/kercre123/wire-pod:main    # same runtime the server was built in
+    container_name: vector-whisper
+    network_mode: host
+    restart: unless-stopped
+    entrypoint: ["/whisper/whisper-server", "-m", "/whisper/ggml-base.en.bin", "--host", "127.0.0.1",
+                 "--port", "10330", "-t", "4", "-l", "en", "-ac", "768"]
+    volumes:
+      - ./whisper-cpp:/whisper:ro
+
   vector-agent:
     build: ./vector-agent
     image: vector-agent:local
