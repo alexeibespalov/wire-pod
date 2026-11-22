@@ -59,6 +59,12 @@ TIMEZONE = ZoneInfo(_env("AGENT_TZ", "Europe/London"))
 # Where Vector lives: default for weather/local questions. Set in the Pi's .env (kept out of git).
 HOME_LOCATION = os.environ.get("AGENT_LOCATION", "").strip()
 
+# --- Map understanding (nav map from the listen-only SDK link + exploration photo descriptions)
+NAVMAP_FEED_SEC = float(_env("NAVMAP_FEED_SEC", "5"))       # min seconds between nav map pushes (robot only sends on change)
+EXPLORE_DIR = DATA_DIR / "explore"                          # captures.jsonl / analyses.jsonl (read-only here)
+FINDINGS_HOURS = float(_env("FINDINGS_HOURS", "24"))        # how far back exploration findings go
+FINDINGS_MAX = int(_env("FINDINGS_MAX", "8"))               # max photos summarised per answer
+
 # --- A2A (Agent2Agent) server: lets other agents talk to Vector. Disabled unless a token is set.
 A2A_TOKEN = os.environ.get("A2A_TOKEN", "").strip()
 A2A_HOST = _env("A2A_HOST", "0.0.0.0")

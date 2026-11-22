@@ -23,7 +23,7 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
-from . import faces, turn
+from . import faces, navmap, turn
 
 log = logging.getLogger("vector-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -116,6 +116,7 @@ def _user_text(body: dict) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    navmap.register()  # nav map feed rides on the same SDK link (before it connects)
     faces.start()  # background listen-only SDK connection for face presence
     mcp = await load_mcp_tools()
     async with AsyncSqliteSaver.from_conn_string(str(config.DATA_DIR / "checkpoints.sqlite")) as saver:

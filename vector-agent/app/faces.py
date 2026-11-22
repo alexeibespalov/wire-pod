@@ -28,6 +28,13 @@ _seen: dict[int, dict] = {}      # face_id -> {"name": str, "last": float}
 _known: list[str] = []           # enrolled names
 _known_at = 0.0
 _status = "not started"
+_subscribers: list = []          # fn(robot), called in the SDK thread on every (re)connect
+
+
+def register_subscriber(fn) -> None:
+    """Let another module use the listen-only SDK connection: fn(robot) runs in the SDK
+    thread right after every (re)connect (subscribe to events there; don't block)."""
+    _subscribers.append(fn)
 
 
 # ---------------------------------------------------------------- background watcher
@@ -53,6 +60,11 @@ def _watch_forever() -> None:
                                    enable_face_detection=True, cache_animation_lists=False) as r:
                 r.events.subscribe(on_face, Events.robot_observed_face)
                 r.events.subscribe(on_id_changed, Events.robot_changed_observed_face_id)
+                for fn in _subscribers:
+                    try:
+                        fn(r)
+                    except Exception as e:
+                        log.warning("faces: subscriber %s failed (%s)", getattr(fn, "__name__", fn), e)
                 _status = "watching"
                 log.info("faces: listening for Vector's face recognition events")
                 backoff = 5
