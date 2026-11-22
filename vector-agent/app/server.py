@@ -6,6 +6,7 @@ belong to the agent. Replies stream back as OpenAI chat.completion.chunk SSE so
 wire-pod can start speaking at the first sentence.
 """
 import asyncio
+import contextvars
 from datetime import datetime
 import json
 import logging
@@ -24,7 +25,7 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
-from . import activity, body, explore_capture, faces, guard, library, navmap, practice, scheduler, sleep_routine, turn
+from . import activity, body, explore_capture, faces, guard, library, memory, navmap, practice, scheduler, sleep_routine, turn
 from .audio import PLAYER
 
 def _setup_file_log() -> None:
@@ -53,7 +54,7 @@ _CUE = re.compile(r"\{\{.*?\}\}")
 _QUIET_STEP_TOOLS = {"play_music", "play_podcast", "play_midi", "stop_music", "load_skill",
                      "save_routine", "list_routines", "delete_routine", "schedule_action",
                      "list_schedules", "cancel_schedule", "create_skill", "update_skill",
-                     "forget_skill", "recent_activity", "search_logs"}
+                     "forget_skill", "recent_activity", "search_logs", "remember"}
 _SEARCH_FILLERS = [
     "{{playAnimationWI||thinking}} Ooh, let me look that up. ",
     "{{playAnimationWI||thinking}} One sec, checking the internet. ",
@@ -160,6 +161,25 @@ def _user_text(body: dict) -> str:
                 c = " ".join(p.get("text", "") for p in c if isinstance(p, dict))
             return (c or "").strip()
     return ""
+
+
+_bg_tasks: set = set()
+
+
+def _bg(coro) -> None:
+    """Run after the turn, in a fresh context (its model calls must not stream into the reply)."""
+    t = asyncio.get_running_loop().create_task(coro, context=contextvars.Context())
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+
+
+async def _memory_pass(said: str, reply: str) -> None:
+    try:
+        for change in await memory.reflect(said, reply):
+            log.info("memory: %s", change)
+            activity.record("memory", change)
+    except Exception as e:
+        log.warning("memory pass failed: %s", e)
 
 
 @asynccontextmanager
@@ -327,6 +347,7 @@ async def chat_completions(request: Request):
                 said.append(cue)
             log.info("[%s] vector (%.2fs): %s", thread, time.time() - t0, "".join(said))
             activity.record("conversation", f"{note} heard: \"{text[:120]}\" -> I said: \"{spoken[:160]}\"")
+            _bg(_memory_pass(f"{note}\n{text}", spoken))   # automatic memory, after the reply
             yield _chunk(cid, model, None, "stop")
             yield "data: [DONE]\n\n"
             # Start music queued this turn, or resume music the wake word paused,
