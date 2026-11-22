@@ -218,6 +218,8 @@ func STT(req sr.SpeechRequest) (string, error) {
 		gpRecs[recind].InUse = false
 	}
 	transcribedText := jres["text"].(string)
+	captureSample(req.DecodedMicData, transcribedText)
+	transcribedText = betterTranscript(req.Device, req.DecodedMicData, transcribedText) // Whisper, if set
 	logger.Println("Bot " + req.Device + " Transcribed text: " + transcribedText)
 	return transcribedText, nil
 }

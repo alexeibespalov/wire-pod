@@ -19,6 +19,11 @@ services:
       WIREPOD_STT_SERVICE: vosk
       WIREPOD_STT_LANGUAGE: en-US
       WIREPOD_USE_INBUILT_BLE: "false"
+      # TEMPORARY: keep the last 60 requests' audio + Vosk transcript (local only) to
+      # benchmark Whisper models on real speech. Delete these two lines and
+      # ~/wire-pod/data/stt-samples when done.
+      STT_CAPTURE_DIR: /data/stt-samples
+      STT_CAPTURE_MAX: "60"
     volumes:
       - ./data:/data
       # SDK info (session cert + sdk_config.ini) wire-pod writes for Python/Go SDK clients
