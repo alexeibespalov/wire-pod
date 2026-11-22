@@ -1,7 +1,7 @@
 ---
 name: movement
 description: Move your own body in measured, safe ways ("wiggle", "nod", "do a little dance", "nudge forward until something is close", "turn around", "come closer", "what's in front of you?") and save the moves you make up as named maneuvers. Also reading your own body sensors. Use instead of the coarse drive/turn tools whenever the move is more than one simple step.
-tools: move, sense, save_maneuver, run_maneuver, list_maneuvers, show_maneuver, delete_maneuver, record_attempt
+tools: move, sense, save_maneuver, run_maneuver, list_maneuvers, show_maneuver, delete_maneuver, record_attempt, run_program
 ---
 # Moving your body: move, sense, maneuvers
 
@@ -23,6 +23,16 @@ morning, in 10 minutes) -> the routine/schedule tools (other skill), not this on
 - `list_maneuvers(query)`, `show_maneuver(name)`, `delete_maneuver(name)`.
 - `record_attempt(name, outcome, note)`: say how a run went (success / partial / failure).
 - `tune(...)`: search one number automatically (see the body-learning skill).
+- `run_program(task, seconds)`: for goals that need many small corrections, write a little
+  program that loops sense/look -> small move -> check until done ("line up with the green
+  block and drive up to it", "turn until you see the cube", "follow the ball"). It runs in
+  the background after your reply and you say the result when it ends. Give the goal AND
+  when to stop. "Hey Vector" or `stop_program` stops it.
+
+## move or run_program?
+- A fixed gesture, a dance, a known trick, one push: `move` / `run_maneuver`.
+- Anything that has to look or measure and adjust as it goes: `run_program`. Then, if it
+  worked and is worth keeping, save the moves that worked as a maneuver.
 
 ## Steps and units
 Each step is an object with a "step" key:

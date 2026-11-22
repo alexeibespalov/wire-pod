@@ -42,7 +42,7 @@ from langchain_core.tools import tool
 from pydantic import Field
 
 from . import llm as llms
-from . import config, faces
+from . import config, faces, sleepbatch
 
 log = logging.getLogger("vector-agent")
 
@@ -258,6 +258,10 @@ async def run_session(force: bool = False, budget_s: float | None = None) -> dic
                 log.exception("sleep: job %s failed", j.name)
             finally:
                 _current.update(job=None, since=0.0)
+                try:                       # send what the job queued for Sonnet as one batch
+                    await sleepbatch.flush()
+                except Exception as e:
+                    log.warning("sleep: batch submit failed: %s", e)
             results[j.name] = {"outcome": outcome, "seconds": round(time.time() - t0, 1), **(summary or {})}
             _state["jobs"].setdefault(j.name, {}).update(
                 last_run=datetime.now(config.TIMEZONE).isoformat(timespec="seconds"), last_result=results[j.name])
@@ -299,6 +303,7 @@ def start() -> None:
         pass
     _load_state()
     faces.register_subscriber(_subscribe)
+    sleepbatch.start()        # resume polling batches sent before a restart
     if config.SLEEP_ROUTINE:
         asyncio.get_running_loop().create_task(_scheduler())
         log.info("sleep: routine enabled, jobs: %s", ", ".join(sorted(JOBS, key=lambda n: JOBS[n].order)))
@@ -314,6 +319,8 @@ def status_text() -> str:
         pend = ", work pending" if j.has_work is None or j.has_work() else ", no work pending"
         lines.append(f"- {j.name}: last run {info.get('last_run', 'never')}{pend}; "
                      f"last result {json.dumps(info.get('last_result', {}))}")
+    if batch := sleepbatch.status_line():
+        lines.append(f"sleep thinking on {config.SLEEP_MODEL} (batches): {batch}")
     return "\n".join(lines)
 
 
@@ -403,10 +410,11 @@ async def _ask_vlm(jpg: bytes) -> dict:
         {"type": "text", "text": "Label this photo as JSON."},
     ])
     model = llms.json_model(_vlm) if _json_mode else _vlm
+    model = sleepbatch.model(max_tokens=400, direct=model)    # Sonnet via batches on Claude
     try:
         resp = await model.ainvoke([SystemMessage(_VLM_SYSTEM), msg])
     except Exception as e:
-        if _json_mode and "response_format" in str(e).lower():
+        if not isinstance(e, sleepbatch.Pending) and _json_mode and "response_format" in str(e).lower():
             log.info("sleep: endpoint rejects response_format; parsing free text from now on")
             _json_mode = False
             resp = await _vlm.ainvoke([SystemMessage(_VLM_SYSTEM), msg])
@@ -429,8 +437,9 @@ def _append_analysis(rec: dict) -> None:
 async def analyze_explore_photos(ctx: Ctx) -> dict:
     """Idempotent: a photo counts as done once its line is in analyses.jsonl; failures are
     counted (max SLEEP_VLM_MAX_ATTEMPTS) and retried in later sessions."""
-    todo = _pending()[:config.SLEEP_VLM_BATCH]
-    ok = failed = streak = 0
+    # with batches every pending photo is queued at once (they come back together)
+    todo = _pending()[:config.SLEEP_VLM_BATCH * (4 if sleepbatch.enabled() else 1)]
+    ok = failed = streak = waiting = 0
     for i, c in enumerate(todo):
         if not ctx.alive():
             break
@@ -438,12 +447,15 @@ async def analyze_explore_photos(ctx: Ctx) -> dict:
             jpg = await asyncio.to_thread((config.EXPLORE_DIR / c["file"]).read_bytes)
             res = await _ask_vlm(jpg)
             _append_analysis({"id": c["id"], "analyzed_at": datetime.now(config.TIMEZONE).isoformat(timespec="seconds"),
-                              "model": config.VISION_MODEL, **res})
+                              "model": config.SLEEP_MODEL if sleepbatch.enabled() else config.VISION_MODEL, **res})
             _failures().pop(c["id"], None)
             ok += 1
             streak = 0
         except asyncio.CancelledError:
             raise
+        except sleepbatch.Pending:
+            waiting += 1                 # queued for a batch: picked up in a later session
+            continue
         except Exception as e:
             failed += 1
             streak += 1
@@ -456,7 +468,7 @@ async def analyze_explore_photos(ctx: Ctx) -> dict:
         ctx.save()
         if i < len(todo) - 1:
             await ctx.sleep(config.SLEEP_VLM_DELAY_S)
-    return {"analysed": ok, "failed": failed, "still_pending": len(_pending())}
+    return {"analysed": ok, "failed": failed, "waiting_for_batch": waiting, "still_pending": len(_pending())}
 
 
 # ============================================================ tools

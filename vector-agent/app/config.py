@@ -32,6 +32,14 @@ LLM_BACKGROUND_EFFORT = _env("LLM_BACKGROUND_EFFORT", "medium")
 # category). Empty to turn off (e.g. for Haiku, which has no server-side fallback).
 LLM_FALLBACKS = _env("LLM_FALLBACKS", "" if "haiku" in LLM_MODEL else "default")
 
+# Body programs (app/programs.py, Claude only): the model that writes them.
+PROGRAM_MODEL = _env("PROGRAM_MODEL", LLM_MODEL)
+# Sleep jobs on the Message Batches API (Claude only): half price, results within ~1 h, so a
+# job submits in one sleep session and picks the answers up in a later one.
+SLEEP_MODEL = _env("SLEEP_MODEL", "claude-sonnet-5-5")
+SLEEP_BATCH = _env("SLEEP_BATCH", "1") == "1" and ANTHROPIC
+SLEEP_BATCH_MAX_AGE_H = float(_env("SLEEP_BATCH_MAX_AGE_H", "26"))
+
 # Vision (camera "look" tool): any multimodal model. qwen3.6-flash and Claude both see.
 VISION_MODEL = _env("VISION_MODEL", LLM_MODEL)
 

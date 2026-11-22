@@ -24,7 +24,7 @@ from datetime import datetime
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 
-from . import config, llm as llms, sleep_routine
+from . import config, llm as llms, sleep_routine, sleepbatch
 
 log = logging.getLogger("vector-agent")
 
@@ -165,6 +165,9 @@ async def _compact(thread: str, messages: list[AnyMessage], llm, keep: int | Non
         log.info("[%s] compacted %d old messages into the summary (%.1fs, %d words)", thread,
                  len(old), asyncio.get_running_loop().time() - t0, len(summary.split()))
         return len(old)
+    except sleepbatch.Pending:
+        log.info("[%s] summary queued for the sleep batch", thread)
+        return 0
     except Exception as e:
         log.warning("[%s] couldn't summarise old messages (%s); will retry later", thread, e)
         return 0
@@ -208,7 +211,8 @@ async def compact_conversations(ctx) -> dict:
         if tokens(history) <= config.SLEEP_KEEP_TOKENS + 500 or thread in _running:
             continue
         _running.add(thread)
-        done[thread] = await _compact(thread, history, llm, keep=config.SLEEP_KEEP_TOKENS)
+        done[thread] = await _compact(thread, history, sleepbatch.model(max_tokens=2000, direct=llm),
+                                      keep=config.SLEEP_KEEP_TOKENS)
     _state["last_sleep_compact"] = datetime.now().timestamp()
     return {"folded_messages": done}
 
@@ -310,28 +314,45 @@ async def harvest_memories(ctx) -> dict:
     def listing():
         return "\n".join(f"{i + 1}. {f['fact']}" for i, f in enumerate(memory._load())) or "(none yet)"
 
+    model = sleepbatch.model(max_tokens=900, direct=memory._llm())    # Sonnet via batches on Claude
+
     async def ask(prompt: str) -> dict:
         try:
-            d = await llms.ainvoke_json(memory._llm(), [HumanMessage(prompt)])
+            d = await llms.ainvoke_json(model, [HumanMessage(prompt)])
             return d if isinstance(d, dict) else {}
         except ValueError:
             return {}
 
+    def save(at: float, ids: list, summary: str, harvested: bool) -> None:
+        (config.DATA_DIR / "memory_harvest.json").write_text(json.dumps(
+            {"at": at, "seen_ids": ids[-4000:], "last_summary": summary,
+             "harvested_at": time.time() if harvested else st.get("harvested_at", 0)}))
+
     changed = []
-    if lines or notes:                                   # 1. harvest new facts
-        plan = await ask(_HARVEST_PROMPT.format(
-            today=today, facts=listing(), notes="\n\n".join(notes)[-3000:] or "(none)",
-            transcript="\n".join(lines)[-14000:] or "(nothing new)"))
-        changed += memory.apply_plan({"add": plan.get("add"), "update": plan.get("update")}, max_add=10)
-    if ctx.alive() and memory._load():                   # 2. tidy the whole memory
-        plan = await ask(_TIDY_PROMPT.format(today=today, facts=listing()))
-        changed += memory.apply_plan({"update": plan.get("update"), "remove": plan.get("remove")})
+    # With batches the two passes can land in different sleep sessions: once the harvest
+    # pass is applied it isn't asked again until there's new conversation.
+    harvested = st.get("harvested_at", 0) > st.get("at", 0)
+    try:
+        if (lines or notes) and not harvested:           # 1. harvest new facts
+            plan = await ask(_HARVEST_PROMPT.format(
+                today=today, facts=listing(), notes="\n\n".join(notes)[-3000:] or "(none)",
+                transcript="\n".join(lines)[-14000:] or "(nothing new)"))
+            changed += memory.apply_plan({"add": plan.get("add"), "update": plan.get("update")}, max_add=10)
+            harvested = True
+            new_ids, seen_list = [], st.get("seen_ids", []) + new_ids
+            save(st.get("at", 0), seen_list, "; ".join(changed)[:300], True)
+            st.update(json.loads((config.DATA_DIR / "memory_harvest.json").read_text()))
+        if ctx.alive() and memory._load():               # 2. tidy the whole memory
+            plan = await ask(_TIDY_PROMPT.format(today=today, facts=listing()))
+            changed += memory.apply_plan({"update": plan.get("update"), "remove": plan.get("remove")})
+    except sleepbatch.Pending:
+        for c in changed:
+            activity.record("memory", f"(sleep) {c}")
+        return {"changed": changed, "waiting": "queued for the sleep batch"}
     plan = {"summary": "; ".join(changed)[:300]}
     for c in changed:
         activity.record("memory", f"(sleep) {c}")
-    keep_ids = (st.get("seen_ids", []) + new_ids)[-4000:]
-    (config.DATA_DIR / "memory_harvest.json").write_text(json.dumps(
-        {"at": time.time(), "seen_ids": keep_ids, "last_summary": plan.get("summary", "")}))
+    save(time.time(), st.get("seen_ids", []) + new_ids, plan.get("summary", ""), False)
     ctx.log.info("sleep: memory harvest: %s", changed or "no change")
     return {"changed": changed, "summary": plan.get("summary", "")}
 

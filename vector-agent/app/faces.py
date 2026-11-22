@@ -109,9 +109,10 @@ def _watch_forever() -> None:
         if event.WhichOneof("wake_word_type") == "wake_word_begin":
             from .audio import PLAYER
             PLAYER.on_wake_word()
-            from . import routines, scheduler
+            from . import programs, routines, scheduler
             routines.on_wake_word()
             scheduler.on_wake_word()
+            programs.on_wake_word()
 
     backoff = 5
     while True:

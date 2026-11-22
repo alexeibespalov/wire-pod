@@ -25,7 +25,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.tools import tool
 from pydantic import Field
 
-from . import llm as llms
+from . import llm as llms, sleepbatch
 from . import activity, config, faces, guard, routines, skills, sleep_routine, turn
 
 log = logging.getLogger("vector-agent")
@@ -375,8 +375,10 @@ async def review_learning(ctx) -> dict:
                     f"note={r.get('note')} result={json.dumps(r.get('result'))[:240]}" for r in rows)
     prac = "\n".join(f"- {p['goal']}: {p['summary']}" for p in _history()[-5:]) or "(none)"
     try:
-        plan = await llms.ainvoke_json(_llm, [HumanMessage(_REVIEW_PROMPT.format(
-            maneuvers=man or "(none)", attempts=att, practice=prac))])
+        plan = await llms.ainvoke_json(sleepbatch.model(max_tokens=900, direct=_llm), [HumanMessage(
+            _REVIEW_PROMPT.format(maneuvers=man or "(none)", attempts=att, practice=prac))])
+    except sleepbatch.Pending:
+        return {"waiting": "review queued for the batch"}
     except ValueError:
         return {"error": "review reply wasn't JSON"}
     saved, rejected = [], []

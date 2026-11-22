@@ -29,7 +29,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from pydantic import Field
 
-from . import llm as llms
+from . import llm as llms, sleepbatch
 from . import config, explore, navmap
 from .sleep_routine import Ctx, job
 
@@ -187,7 +187,9 @@ def _parse(text: str) -> dict | None:
 async def decide(known: str, evidence: str) -> dict | None:
     msgs = [SystemMessage(_SYSTEM), HumanMessage(f"KNOWN PLACES\n{known}\n\nEVIDENCE\n{evidence}")]
     try:
-        resp = await llms.json_model(_llm).ainvoke(msgs)
+        resp = await sleepbatch.model(max_tokens=700, direct=llms.json_model(_llm)).ainvoke(msgs)
+    except sleepbatch.Pending:
+        raise
     except Exception:
         resp = await _llm.ainvoke(msgs)
     return _parse(llms.text(resp))
@@ -249,7 +251,12 @@ async def identify_places(ctx: Ctx) -> dict:
             break
         with _lock:
             known = _known_text(_load())
-        r = await decide(known, _evidence(g))
+        try:
+            r = await decide(known, _evidence(g))
+        except sleepbatch.Pending:
+            # one at a time: each decision changes the known places the next one sees
+            results.append(f"{g['key']}: waiting for the batch")
+            break
         if r is None:
             log.warning("places: unparseable decision for %s", g["key"])
             continue

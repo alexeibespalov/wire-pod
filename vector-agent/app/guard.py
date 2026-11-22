@@ -68,13 +68,14 @@ _SPEECH_HAZARD = re.compile(
 
 # tools that create something lasting or act on their own later: always judged
 ALWAYS_JUDGE = {"create_skill", "update_skill", "save_routine", "schedule_action", "start_practice",
-                "save_maneuver", "say_aloud"}
+                "save_maneuver", "say_aloud", "run_program"}
 # tools that only read or are harmless on their own: never judged
 NEVER_JUDGE = {"sense", "battery_status", "recent_activity", "search_logs", "list_routines",
                "list_schedules", "cancel_schedule", "list_maneuvers", "show_maneuver", "practice_status",
                "stop_practice", "stop_music", "now_playing", "where_am_i", "exploration_findings",
                "load_skill", "forget", "forget_skill", "delete_routine", "delete_maneuver",
-               "which_place", "sleep_routine_status", "recent_exploration_finds", "record_attempt"}
+               "which_place", "sleep_routine_status", "recent_exploration_finds", "record_attempt",
+               "stop_program"}
 
 # Claude thinks before answering even at low effort, so it gets a little more time.
 _judge = llms.chat(temperature=0, timeout=14 if config.ANTHROPIC else 8, max_retries=1, max_tokens=160)

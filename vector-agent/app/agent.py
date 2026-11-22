@@ -48,7 +48,7 @@ def _request_text(messages: list[AnyMessage]) -> str:
 CORE_TOOLS = ["drive", "turn", "move_head", "move_lift", "do_action", "set_eye_color", "battery_status",
               "remember", "forget", "load_skill", "recent_activity", "search_logs", "stop_music",
               "now_playing", "list_schedules", "cancel_schedule", "start_practice", "practice_status",
-              "stop_practice",
+              "stop_practice", "stop_program",
               "sleep_routine_status", "say_aloud"]
 _LOADED = re.compile(r"^SKILL (\S+) loaded")
 _CACHE = {"cache_control": {"type": "ephemeral"}}
@@ -74,18 +74,26 @@ def active_tool_names(messages: list[AnyMessage], available: dict, always: list[
 
 
 def _cached(m: AnyMessage) -> AnyMessage:
-    """Copy of m with a prompt-cache breakpoint (Alibaba explicit cache: the prefix up to
-    here is cached for ~5 min and re-used by the next call that starts the same way)."""
+    """Copy of m with a prompt-cache breakpoint: the prefix up to here is cached for ~5 min
+    and re-used by the next call that starts the same way (Alibaba explicit cache and
+    Anthropic prompt caching take the same cache_control marker)."""
     return m.model_copy(update={"content": [{"type": "text", "text": m.content, **_CACHE}]})
 
 
-def for_model(system: SystemMessage, messages: list[AnyMessage], context: str) -> list[AnyMessage]:
-    """What the model sees: [system (cached)] + history (cache breakpoint at its end) + the
-    newest human message with the live RIGHT NOW block in front (not saved) + this turn's
-    tool rounds (breakpoint on the last one, so each tool-loop step re-uses the previous)."""
+def for_model(system: SystemMessage, messages: list[AnyMessage], context: str = "") -> list[AnyMessage]:
+    """What the model sees: [system (cached)] + history (breakpoint at its end) + this turn
+    (breakpoint at its latest point, so each tool-loop step re-uses the previous one).
+
+    Claude (context == ""): the live RIGHT NOW block is already in `messages` as a SAVED
+    system message right after the newest human message, so nothing earlier is ever edited:
+    the history only grows, which keeps the prompt cache and earlier thinking blocks valid.
+    Qwen (context given): it goes in front of the newest human message and isn't saved; any
+    saved mid-history system messages (from a Claude period) are left out."""
     msgs = list(messages)
+    if context:
+        msgs = [m for m in msgs if not isinstance(m, SystemMessage)]
     cur = max((i for i, m in enumerate(msgs) if isinstance(m, HumanMessage)), default=None)
-    if cur is not None:
+    if context and cur is not None:
         msgs[cur] = msgs[cur].model_copy(update={"content": f"{context}\n{msgs[cur].content}"})
 
     def mark(i):
@@ -174,18 +182,25 @@ def build_agent(checkpointer, extra_tools: list | None = None):
         summary, history = compaction.prepare(thread, previous or [])
         messages = add_messages(history, [HumanMessage(user_text)])
         system = SystemMessage(build_system_prompt(tool_names, summary))
+        in_place = config.ANTHROPIC     # Claude: live context is a saved system message (see for_model)
+        if in_place:
+            messages = add_messages(messages, [SystemMessage(build_context())])
 
         response = None
         t_start = time.monotonic()
         for _ in range(config.MAX_AGENT_STEPS):
             names = active_tool_names(messages, tools_by_name, always)
             last = names
-            ctx_block = build_context()
+            ctx_block = "" if in_place else build_context()
             if time.monotonic() - t_start > config.TURN_BUDGET_S and turn.channel == "voice":
                 # Vector gives up on a reply after ~25 s (cloud-with-X face): wrap up now
                 names = []
-                ctx_block += ("\n(You've taken a while: answer NOW in one or two sentences with "
-                              "what you have; no more tools this turn.)")
+                hurry = ("(You've taken a while: answer NOW in one or two sentences with "
+                         "what you have; no more tools this turn.)")
+                if in_place:            # appended after the tool results: still append-only
+                    messages = add_messages(messages, [SystemMessage(hurry)])
+                else:
+                    ctx_block += "\n" + hurry
             response = await call_model(for_model(system, messages, ctx_block), names, last)
             if not names and response.tool_calls:
                 # time's up but the model still wants tools: don't run them, just talk

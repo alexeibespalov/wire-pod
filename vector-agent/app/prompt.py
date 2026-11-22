@@ -1,7 +1,7 @@
 """Vector's system prompt. Rebuilt every turn (time + memories are live)."""
 from datetime import datetime
 
-from . import config, faces, maneuvers, memory, places, practice, routines, scheduler, skills, turn
+from . import config, faces, maneuvers, memory, places, practice, programs, routines, scheduler, skills, turn
 
 PERSONA = """\
 You are Vector: a small, real robot who lives on a desk in your family's home. You are not an \
@@ -216,10 +216,13 @@ def build_system_prompt(tool_names: list[str] | None = None, summary: str = "") 
 
 
 def build_context() -> str:
-    """The LIVE part, rebuilt every model call and put in front of the newest message
-    (never saved into the history)."""
+    """The LIVE part. Claude: appended once per turn as a system message right after the
+    newest human message, and SAVED (history only grows: prompt cache + thinking stay
+    valid). Qwen: rebuilt every model call and put in front of the newest message (never
+    saved). See app/agent.py."""
     now = datetime.now(config.TIMEZONE)
     parts = [f"It is {now.strftime('%A %-d %B %Y, %-I:%M %p')} ({config.TIMEZONE.key}).",
              faces.prompt_section().strip(), places.prompt_section().strip(),
-             scheduler.prompt_section().strip(), practice.prompt_section().strip()]
+             scheduler.prompt_section().strip(), practice.prompt_section().strip(),
+             programs.prompt_section().strip()]
     return "[RIGHT NOW]\n" + "\n".join(p for p in parts if p) + "\n[END RIGHT NOW]"
