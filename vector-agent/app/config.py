@@ -121,6 +121,22 @@ PLACE_CONFIRM_SIGHTINGS = int(_env("PLACE_CONFIRM_SIGHTINGS", "2"))  # provision
 PLACE_PROVISIONAL_DAYS = float(_env("PLACE_PROVISIONAL_DAYS", "7"))  # unconfirmed one-offs expire
 PLACES_MAX = int(_env("PLACES_MAX", "20"))
 
+
+# --- Scheduled actions (app/scheduler.py) and routines (app/routines.py)
+SCHEDULE_MAX_ACTIVE = int(_env("SCHEDULE_MAX_ACTIVE", "5"))
+SCHEDULE_MIN_EVERY_S = float(_env("SCHEDULE_MIN_EVERY_S", "5"))
+SCHEDULE_DEFAULT_MINUTES = float(_env("SCHEDULE_DEFAULT_MINUTES", "30"))
+SCHEDULE_MAX_MINUTES = float(_env("SCHEDULE_MAX_MINUTES", "180"))
+SCHEDULE_SPEECH_GAP_S = float(_env("SCHEDULE_SPEECH_GAP_S", "20"))      # per repeating schedule
+SCHEDULE_CAMERA_PER_HOUR = int(_env("SCHEDULE_CAMERA_PER_HOUR", "400"))  # background looks (VLM calls)
+
+# --- Practice (app/practice.py). Idle practice = practise his least reliable maneuver on his
+# own when awake, off the charger and nobody has talked to him for a while. Off by default.
+BODY_IDLE_PRACTICE = _env("BODY_IDLE_PRACTICE", "0") == "1"
+BODY_IDLE_AFTER_MIN = float(_env("BODY_IDLE_AFTER_MIN", "15"))
+BODY_IDLE_MINUTES = float(_env("BODY_IDLE_MINUTES", "5"))
+BODY_IDLE_CHECK_MIN = float(_env("BODY_IDLE_CHECK_MIN", "10"))
+
 # --- Persistent log file (agent-data/logs/agent.log, rotating)
 LOG_MAX_BYTES = int(_env("LOG_MAX_BYTES", str(5 * 1024 * 1024)))
 LOG_BACKUPS = int(_env("LOG_BACKUPS", "4"))

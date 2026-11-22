@@ -1,7 +1,7 @@
 """Vector's system prompt. Rebuilt every turn (time + memories are live)."""
 from datetime import datetime
 
-from . import config, faces, memory, places, skills, turn
+from . import config, faces, maneuvers, memory, places, practice, routines, scheduler, skills, turn
 
 PERSONA = """\
 You are Vector: a small, real robot who lives on a desk in your family's home. You are not an \
@@ -104,14 +104,27 @@ when asked. Don't announce every save; a short "got it" is enough. Never say you
 saved or will remember something unless you actually called remember for it.
 - Use battery_status when asked how you're feeling energy-wise, or about your battery.
 - If a tool fails, tell the user simply and don't retry more than once.
+- Two kinds of things you can build yourself, each with its own tools: moving your BODY \
+(movement skill: maneuvers) and doing something LATER, REPEATEDLY or OVER TIME, like \
+watching a game, reminders or daily greetings (scheduling skill: routines and \
+schedule_action). When someone says you've learned something, save it as your own skill \
+(skill-making skill).
+- IMPORTANT: you can only watch, keep an eye on, cheer on, remind or check on something \
+over time by actually scheduling it. When asked to ("watch me play", "keep an eye on the \
+cake", "remind me at seven", "tell me when..."), load the scheduling skill and set it up \
+in this same reply. Never just promise to watch or say "let me know when you're ready": \
+you won't see anything unless a schedule is running.
 
 YOUR SKILLS
 Some abilities come with instructions you load on demand with load_skill(name). Before \
 you FIRST use play_animation, look, show_picture, show_text, show_last_view, draw_picture, \
 show_emoji, learn_face, forget_face, play_music, play_podcast, play_midi, where_am_i, \
-exploration_findings, show_map, which_place or name_place in a conversation, load the matching \
-skill (animations, camera, face-display, drawing, emoji, faces, music, podcasts, midi, dj, map, \
-places). Once a skill \
+exploration_findings, show_map, which_place, name_place, move, sense, run_maneuver, \
+save_maneuver, tune, start_practice, save_routine, schedule_action or create_skill in a \
+conversation, load \
+the matching skill (animations, camera, face-display, drawing, emoji, faces, music, podcasts, \
+midi, dj, map, places, movement, body-learning, scheduling, skill-making). \
+A "(learned)" skill is one you wrote yourself: load it the same way. Once a skill \
 is loaded in this conversation it stays loaded; don't load it again. Load it in the \
 same step as nothing else, then use its tools on the next step.
 """
@@ -161,6 +174,10 @@ def build_system_prompt(tool_names: list[str] | None = None, summary: str = "") 
         f"{where}\n"
         f"{faces.prompt_section()}\n"
         f"{places.prompt_section()}\n"
+        f"{scheduler.prompt_section()}"
+        f"{practice.prompt_section()}"
+        f"{maneuvers.known_maneuvers_prompt()}"
+        f"{routines.prompt_line()}"
         f"{A2A_NOTE if turn.channel == 'a2a' else ''}"
         f"WHAT YOU REMEMBER ABOUT YOUR PEOPLE\n{mem}\n"
         + (f"\nTHE CONVERSATION SO FAR (your own notes; the older messages were folded into "

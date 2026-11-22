@@ -6,8 +6,6 @@ Movement safety: every motion is speed- and time-capped and always ends with a
 stop command, even on error. Vector's own cliff/pickup reflexes stay active
 because we only ever take behaviour control at DEFAULT priority.
 """
-import asyncio
-import contextlib
 from typing import Literal
 
 from langchain_core.tools import tool
@@ -22,7 +20,11 @@ from .music_tools import MUSIC_TOOLS
 from .explore_capture import recent_exploration_finds, set_exploration_capture
 from .face import show_last_view, show_picture, show_text
 from .robot import sdk as _sdk
-from .skills import load_skill
+from .skills import SKILL_TOOLS, load_skill
+from .routines import ROUTINE_TOOLS
+from .scheduler import SCHEDULE_TOOLS
+from .maneuvers import MANEUVER_TOOLS
+from .practice import PRACTICE_TOOL_LIST
 from .sleep_routine import run_sleep_routine_now, sleep_routine_status
 from .navmap import show_map, where_am_i
 from .explore import exploration_findings
@@ -30,34 +32,26 @@ from .places import PLACE_TOOLS
 from .vision import look
 
 
-@contextlib.asynccontextmanager
-async def _in_control():
-    """Pause Vector's autonomous behaviours while we drive his motors. If wire-pod already
-    holds control this turn, use it (asking again would cut off his speech)."""
-    if turn_state.wirepod_has_control:
-        yield
-        return
-    await _sdk("assume_behavior_control", priority="default")
-    await asyncio.sleep(0.4)  # let the control grant land
-    try:
-        yield
-    finally:
-        with contextlib.suppress(Exception):
-            await _sdk("release_behavior_control")
-
-
-async def _wheels(lw: int, rw: int, seconds: float) -> None:
-    try:
-        await _sdk("move_wheels", lw=lw, rw=rw)
-        await asyncio.sleep(seconds)
-    finally:
-        with contextlib.suppress(Exception):
-            await _sdk("move_wheels", lw=0, rw=0)
-
-
 # --------------------------------------------------------------------- movement
-_DRIVE_SECONDS = {"tiny": 0.5, "short": 1.0, "medium": 2.0}
-_DRIVE_SPEED = 80  # mm/s  -> tiny ~4cm, short ~8cm, medium ~16cm
+# The easy, coarse moves. They run on the body engine (app/body.py), so they get the same
+# safety governor as maneuvers: stop if picked up / at a cliff / tilted, speed and distance
+# caps, one motion at a time. For exact numbers use `move` (movement skill).
+_DRIVE_MM = {"tiny": 40, "short": 80, "medium": 160}
+_TURN_DEG = {"a little": 25, "quarter": 90, "half": 180, "full circle": 360}
+_HEAD_DEG = {"up": 40, "down": -20, "level": 0}
+
+
+async def _steps(steps: list[dict], label: str) -> str:
+    from .maneuvers import ManeuverError, _human_err, format_summary, run_steps
+    try:
+        r = await run_steps(steps, label=label)
+    except ManeuverError as e:
+        return _human_err(e)
+    except Exception as e:   # BodyError and friends: plain words for the model
+        return f"error: {e}"
+    if "error" in r:
+        return f"error: {r['error']}"
+    return format_summary(label, r)
 
 
 @tool
@@ -65,55 +59,47 @@ async def drive(direction: Literal["forward", "backward"],
                 distance: Literal["tiny", "short", "medium"] = "short") -> str:
     """Drive Vector's wheels straight forward or backward.
     tiny is about 4 cm, short about 8 cm, medium about 16 cm. Use for requests like
-    "come closer", "back up a bit", "scoot forward". He will drive off his charger if on it."""
-    v = _DRIVE_SPEED if direction == "forward" else -_DRIVE_SPEED
-    async with _in_control():
-        await _wheels(v, v, _DRIVE_SECONDS[distance])
-    return f"drove {direction} ({distance})"
-
-
-_TURN_SECONDS = {"a little": 0.25, "quarter": 0.75, "half": 1.5, "full circle": 3.0}
-_TURN_SPEED = 50  # mm/s per wheel, opposite directions -> ~120 deg/s
+    "come closer", "back up a bit", "scoot forward". On his charger, "forward" first drives
+    off it. For exact distances use `move`."""
+    from . import body
+    pre = ""
+    if body.FEED.snapshot()["status"] & body.ST_ON_CHARGER:
+        if direction == "backward":
+            return "error: I'm on my charger, I can't back up from here"
+        try:
+            pre = await body.drive_off_charger() + "; "
+        except Exception as e:
+            return f"error: {e}"
+    mm = _DRIVE_MM[distance] * (1 if direction == "forward" else -1)
+    return pre + await _steps([{"step": "drive", "mm": mm, "speed": 80}], f"drove {direction}")
 
 
 @tool
 async def turn(direction: Literal["left", "right"],
                amount: Literal["a little", "quarter", "half", "full circle"] = "quarter") -> str:
     """Turn Vector in place. quarter is about 90 degrees, half about 180, full circle 360.
-    Use for "turn around", "look left", "spin"."""
-    s = _TURN_SPEED
-    lw, rw = (-s, s) if direction == "left" else (s, -s)
-    async with _in_control():
-        await _wheels(lw, rw, _TURN_SECONDS[amount])
-    return f"turned {direction} ({amount})"
+    Use for "turn around", "look left", "spin". For exact angles use `move`."""
+    deg = _TURN_DEG[amount] * (1 if direction == "left" else -1)
+    if abs(deg) >= 360:   # one step can't express a full circle reliably: two halves
+        steps = [{"step": "turn", "deg": deg / 2}, {"step": "turn", "deg": deg / 2}]
+    else:
+        steps = [{"step": "turn", "deg": deg}]
+    return await _steps(steps, f"turned {direction}")
 
 
 @tool
 async def move_head(direction: Literal["up", "down", "level"]) -> str:
     """Tilt Vector's head. "up" looks up at a standing person, "down" looks at the
-    desk in front of him, "level" looks straight ahead."""
-    async with _in_control():
-        if direction == "level":
-            await _sdk("move_head", speed=-3)
-            await asyncio.sleep(0.8)
-            await _sdk("move_head", speed=2)
-            await asyncio.sleep(0.35)
-        else:
-            await _sdk("move_head", speed=3 if direction == "up" else -3)
-            await asyncio.sleep(0.8)
-        await _sdk("move_head", speed=0)
-    return f"head {direction}"
+    desk in front of him, "level" looks straight ahead. For exact angles use `move`."""
+    return await _steps([{"step": "head", "deg": _HEAD_DEG[direction]}], f"head {direction}")
 
 
 @tool
 async def move_lift(direction: Literal["up", "down"]) -> str:
     """Raise or lower Vector's lift (his little forklift arms). Good for waving,
     cheering ("arms up!") or flexing."""
-    async with _in_control():
-        await _sdk("move_lift", speed=4 if direction == "up" else -4)
-        await asyncio.sleep(0.8)
-        await _sdk("move_lift", speed=0)
-    return f"lift {direction}"
+    return await _steps([{"step": "lift", "height": 1.0 if direction == "up" else 0.0}],
+                        f"lift {direction}")
 
 
 # --------------------------------------------------------------- built-in actions
@@ -200,7 +186,8 @@ TOOLS = [drive, turn, move_head, move_lift, do_action, set_eye_color, battery_st
          load_skill, play_animation, look, show_picture, show_text, show_last_view, draw_picture,
          show_emoji, learn_face, forget_face, *MUSIC_TOOLS,
          recent_exploration_finds, set_exploration_capture, sleep_routine_status, run_sleep_routine_now,
-         where_am_i, exploration_findings, show_map, *PLACE_TOOLS]
+         where_am_i, exploration_findings, show_map, *PLACE_TOOLS,
+         *MANEUVER_TOOLS, *PRACTICE_TOOL_LIST, *ROUTINE_TOOLS, *SCHEDULE_TOOLS, *SKILL_TOOLS]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
 

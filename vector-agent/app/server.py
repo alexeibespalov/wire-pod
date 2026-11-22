@@ -24,7 +24,7 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
-from . import explore_capture, faces, library, navmap, sleep_routine, turn
+from . import body, explore_capture, faces, library, navmap, practice, scheduler, sleep_routine, turn
 from .audio import PLAYER
 
 def _setup_file_log() -> None:
@@ -50,7 +50,10 @@ _setup_file_log()
 STATE = {"agent": None}
 _THREAD_FILE = config.DATA_DIR / "thread.json"
 _CUE = re.compile(r"\{\{.*?\}\}")
-_QUIET_STEP_TOOLS = {"play_music", "play_podcast", "play_midi", "stop_music", "load_skill"}
+_QUIET_STEP_TOOLS = {"play_music", "play_podcast", "play_midi", "stop_music", "load_skill",
+                     "save_routine", "list_routines", "delete_routine", "schedule_action",
+                     "list_schedules", "cancel_schedule", "create_skill", "update_skill",
+                     "forget_skill"}
 _SEARCH_FILLERS = [
     "{{playAnimationWI||thinking}} Ooh, let me look that up. ",
     "{{playAnimationWI||thinking}} One sec, checking the internet. ",
@@ -167,8 +170,11 @@ async def lifespan(app: FastAPI):
     explore_capture.start()  # photos when his own exploring meets obstacles/objects (hooks faces' SDK link)
     sleep_routine.start()    # night-time chores while he sleeps (registers its hook before faces.start)
     navmap.register()  # nav map feed rides on the same SDK link (before it connects)
+    body.register()    # body engine's state feed (fine movement / maneuvers) on the same SDK link
     faces.start()  # background listen-only SDK connection for face presence
     library.start()  # index the NAS music library (cached)
+    scheduler.start()  # scheduled actions / routines in the background
+    practice.start()   # idle practice loop (off unless BODY_IDLE_PRACTICE=1)
     mcp = await load_mcp_tools()
     async with AsyncSqliteSaver.from_conn_string(str(config.DATA_DIR / "checkpoints.sqlite")) as saver:
         STATE["agent"] = build_agent(saver, mcp)
@@ -219,6 +225,7 @@ async def chat_completions(request: Request):
             log.info("[%s] user: %s %s", thread, note, text)
             t0, said, final, tools_used = time.time(), [], None, set()
             PLAYER.turn_started()
+            scheduler.on_turn_start()
             turn.reset(is_followup=followup)  # follow-up: wire-pod holds the robot from the start
             if followup:
                 log.info("[%s] follow-up (knowledge-graph path): wire-pod holds control", thread)

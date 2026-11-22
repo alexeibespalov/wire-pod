@@ -73,6 +73,9 @@ def _watch_forever() -> None:
         if event.WhichOneof("wake_word_type") == "wake_word_begin":
             from .audio import PLAYER
             PLAYER.on_wake_word()
+            from . import routines, scheduler
+            routines.on_wake_word()
+            scheduler.on_wake_word()
 
     backoff = 5
     while True:
@@ -126,6 +129,18 @@ def present() -> tuple[list[str], int]:
     names = sorted({v["name"] for v in recent if v["name"]})
     unknown = sum(1 for v in recent if not v["name"])
     return names, unknown
+
+
+def front_name() -> str:
+    """Name of the known face right in front of him in the last few seconds, else ""."""
+    now = time.time()
+    with _lock:
+        recent = [v for v in _seen.values() if now - v["last"] <= SPEAKER_SECONDS]
+    if not recent:
+        return ""
+    newest = max(v["last"] for v in recent)
+    front = max((v for v in recent if newest - v["last"] <= 1.5), key=lambda v: v.get("area", 0))
+    return front["name"]
 
 
 def speaker_note() -> str:

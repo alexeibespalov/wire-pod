@@ -39,7 +39,11 @@ async def look(question: Annotated[str, Field(description=
     Load the 'camera' skill first. Point your head the right way BEFORE calling this
     (move_head up for faces and held-up objects, level for things on the desk)."""
     t0 = time.time()
-    jpg = await robot.camera_frame()
+    try:
+        jpg = await robot.camera_frame()
+    except Exception as e:
+        return (f"error: my camera gave no picture ({type(e).__name__}). In low-power mode "
+                f"(asleep / resting on the charger) the camera is off: wake up first.")
     try:  # keep the last view for show_last_view / debugging
         (config.FACE_DIR / "last_view.jpg").write_bytes(jpg)
     except OSError:
