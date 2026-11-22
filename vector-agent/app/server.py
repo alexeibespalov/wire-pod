@@ -23,7 +23,7 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
-from . import faces, library, turn
+from . import explore_capture, faces, library, sleep_routine, turn
 from .audio import PLAYER
 
 def _setup_file_log() -> None:
@@ -145,6 +145,9 @@ def _user_text(body: dict) -> str:
 async def lifespan(app: FastAPI):
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     PLAYER.bind_loop(asyncio.get_running_loop())
+    explore_capture.bind_loop(asyncio.get_running_loop())
+    explore_capture.start()  # photos when his own exploring meets obstacles/objects (hooks faces' SDK link)
+    sleep_routine.start()    # night-time chores while he sleeps (registers its hook before faces.start)
     faces.start()  # background listen-only SDK connection for face presence
     library.start()  # index the NAS music library (cached)
     mcp = await load_mcp_tools()
@@ -174,6 +177,7 @@ def _chunk(cid: str, model: str, content: str | None = None, finish: str | None 
 async def chat_completions(request: Request):
     body = await request.json()
     text = _fix_transcript(_user_text(body))
+    sleep_routine.note_activity()
     followup = _is_followup(body)
     stream = bool(body.get("stream"))
     model = config.LLM_MODEL
