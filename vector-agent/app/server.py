@@ -23,7 +23,7 @@ from . import config
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
-from . import explore_capture, faces, library, sleep_routine, turn
+from . import explore_capture, faces, library, navmap, sleep_routine, turn
 from .audio import PLAYER
 
 def _setup_file_log() -> None:
@@ -148,6 +148,7 @@ async def lifespan(app: FastAPI):
     explore_capture.bind_loop(asyncio.get_running_loop())
     explore_capture.start()  # photos when his own exploring meets obstacles/objects (hooks faces' SDK link)
     sleep_routine.start()    # night-time chores while he sleeps (registers its hook before faces.start)
+    navmap.register()  # nav map feed rides on the same SDK link (before it connects)
     faces.start()  # background listen-only SDK connection for face presence
     library.start()  # index the NAS music library (cached)
     mcp = await load_mcp_tools()

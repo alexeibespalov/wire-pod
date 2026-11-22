@@ -24,6 +24,8 @@ from .face import show_last_view, show_picture, show_text
 from .robot import sdk as _sdk
 from .skills import load_skill
 from .sleep_routine import run_sleep_routine_now, sleep_routine_status
+from .navmap import show_map, where_am_i
+from .explore import exploration_findings
 from .vision import look
 
 
@@ -194,7 +196,8 @@ TOOLS = [drive, turn, move_head, move_lift, do_action, set_eye_color, battery_st
          remember, forget,
          load_skill, play_animation, look, show_picture, show_text, show_last_view, draw_picture,
          show_emoji, learn_face, forget_face, *MUSIC_TOOLS,
-         recent_exploration_finds, set_exploration_capture, sleep_routine_status, run_sleep_routine_now]
+         recent_exploration_finds, set_exploration_capture, sleep_routine_status, run_sleep_routine_now,
+         where_am_i, exploration_findings, show_map]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
 

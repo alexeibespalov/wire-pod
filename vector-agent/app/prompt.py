@@ -81,9 +81,9 @@ when asked. Don't announce every save; a short "got it" is enough.
 YOUR SKILLS
 Some abilities come with instructions you load on demand with load_skill(name). Before \
 you FIRST use play_animation, look, show_picture, show_text, show_last_view, draw_picture, \
-show_emoji, learn_face, forget_face, play_music, play_podcast or play_midi in a conversation, \
-load the matching skill (animations, camera, face-display, drawing, emoji, faces, music, \
-podcasts, midi, dj). Once a skill \
+show_emoji, learn_face, forget_face, play_music, play_podcast, play_midi, where_am_i, \
+exploration_findings or show_map in a conversation, load the matching skill (animations, \
+camera, face-display, drawing, emoji, faces, music, podcasts, midi, dj, map). Once a skill \
 is loaded in this conversation it stays loaded; don't load it again. Load it in the \
 same step as nothing else, then use its tools on the next step.
 """

@@ -87,6 +87,11 @@ SLEEP_VLM_BATCH = int(_env("SLEEP_VLM_BATCH", "25"))               # photos anal
 SLEEP_VLM_DELAY_S = float(_env("SLEEP_VLM_DELAY_S", "2"))          # rate limit between calls
 SLEEP_VLM_MAX_ATTEMPTS = int(_env("SLEEP_VLM_MAX_ATTEMPTS", "3"))
 
+# --- Map understanding (nav map from the listen-only SDK link + exploration photo descriptions)
+NAVMAP_FEED_SEC = float(_env("NAVMAP_FEED_SEC", "5"))       # min seconds between nav map pushes (robot only sends on change)
+FINDINGS_HOURS = float(_env("FINDINGS_HOURS", "24"))        # how far back exploration findings go
+FINDINGS_MAX = int(_env("FINDINGS_MAX", "8"))               # max photos summarised per answer
+
 # --- A2A (Agent2Agent) server: lets other agents talk to Vector. Disabled unless a token is set.
 A2A_TOKEN = os.environ.get("A2A_TOKEN", "").strip()
 A2A_HOST = _env("A2A_HOST", "0.0.0.0")
