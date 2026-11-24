@@ -12,7 +12,8 @@ from .tools import TOOLS
 llm = llms.chat(streaming=True, timeout=60, max_retries=1)   # Qwen or Claude: agent_core/llm.py
 
 _SILENT = re.compile(r"^\W*SILENT\W*$", re.I)   # same as server._SILENT_WORD
-_UNJOURNALED = {"recent_activity", "search_logs", "load_skill", "sense", "list_routines", "list_schedules",
+_UNJOURNALED = {"recall", "belief_history",      # these journal themselves, in more detail (kind "memory")
+                "recent_activity", "search_logs", "load_skill", "sense", "list_routines", "list_schedules",
                 "list_maneuvers", "show_maneuver", "practice_status", "now_playing", "sleep_routine_status"}
 
 

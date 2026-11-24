@@ -9,7 +9,8 @@ from .tools import TOOLS
 
 llm = llms.chat(streaming=True, timeout=60, max_retries=1)   # Claude (or Qwen): agent_core/llm.py
 
-_UNJOURNALED = {"recent_activity", "search_logs", "load_skill", "list_timers",
+_UNJOURNALED = {"recall", "belief_history",      # these journal themselves, in more detail (kind "memory")
+                "recent_activity", "search_logs", "load_skill", "list_timers",
                 "set_timer", "set_reminder", "cancel_timer", "now_playing"}   # (reminders journal themselves)
 
 

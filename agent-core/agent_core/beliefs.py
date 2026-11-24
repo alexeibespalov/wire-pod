@@ -29,6 +29,7 @@ import httpx
 from langchain_core.tools import tool
 
 from .settings import cfg as config
+from . import activity
 
 log = logging.getLogger(config.LOGGER_NAME)
 
@@ -249,6 +250,12 @@ async def search(question: str, k: int = 6) -> tuple[list[dict], bool]:
     return _local_search(question, k), False
 
 
+def _journal(text: str) -> None:
+    """One line in the agent's own journal (kind "memory") per deliberate use of long-term
+    memory, so "when did you look that up, and what did you find?" can be answered later."""
+    activity.record("memory", text)
+
+
 @tool
 async def recall(question: str) -> str:
     """Search your long-term memory for what you currently believe about something or
@@ -262,6 +269,10 @@ async def recall(question: str) -> str:
     if not question:
         return "error: ask about something"
     found, live = await search(question)
+    # every deliberate look into long-term memory is journaled: what was asked, what came back
+    _journal(f"recalled \"{question}\": " + (f"{len(found)} belief(s): " + "; ".join(sentence(b) for b in found[:3])
+                                            if found else "nothing found")
+             + ("" if live else " [store unreachable: looked in the cached snapshot]"))
     if not found:
         return ("nothing in your long-term memory matches that"
                 + ("" if live else " (the memory store is unreachable right now; this was a quick look "
@@ -338,18 +349,24 @@ async def belief_history(about: str) -> str:
     try:
         r = await request("GET", "/beliefs", params={"q": about, "k": 3})
         if r.status_code != 200:
+            _journal(f"asked for the history of \"{about}\": the store refused ({r.status_code})")
             return "error: your memory store refused the question"
         found = r.json().get("beliefs") or []
         if not found:
+            _journal(f"asked for the history of \"{about}\": no current belief matches")
             return "you don't currently believe anything about that, so there's no history to tell"
         b = found[0]
         r = await request("GET", f"/beliefs/{b['id']}/history")
         if r.status_code != 200:
+            _journal(f"asked for the history of \"{about}\": couldn't read it ({r.status_code})")
             return "error: couldn't read the history of that belief"
     except Unavailable:
+        _journal(f"asked for the history of \"{about}\": store unreachable")
         return ("error: your memory store can't be reached right now, so you can't look up the history. "
                 "Say so honestly; you still know what you currently believe.")
-    story = _story(r.json())
+    h = r.json()
+    _journal(f"looked up the history of \"{about}\": {sentence(b)} ({h.get('revisions', '?')} revision(s))")
+    story = _story(h)
     others = "; ".join(sentence(x) for x in found[1:])
     return (f"History of: {sentence(b)}\n{story}\n"
             "(Oldest first. Tell it in your own words, briefly; only the NOW line is what you believe.)"

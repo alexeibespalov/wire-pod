@@ -30,7 +30,7 @@ SKILL_EXAMPLES = {
     "instructions": "routines/maneuvers/schedule settings",
     "tools": "['schedule_action', 'look']"}
 ACTIVITY_TEXT = {
-    "kinds": "conversation, tool, schedule, practice, safety, body, sleep",
+    "kinds": "conversation, tool, memory, schedule, practice, safety, body, sleep",
     "did": "tools you used and why, background schedules, practice, safety blocks, movements that stopped",
     "questions": '"what are you doing?", "why did you do that?", "what happened?", "were you practising?"',
     "log_words": "'error', 'practice', 'schedule', 'wake'"}

@@ -55,12 +55,18 @@ def test_wording():
     assert (beliefs.who("human:leo"), beliefs.who("agent:vector"), beliefs.who("human:unknown")) == ("Leo", "you", "someone")
 
 
-def test_recall_falls_back_to_the_cached_beliefs_when_the_store_is_down(on):
+def test_recall_falls_back_to_the_cached_beliefs_when_the_store_is_down(on, monkeypatch):
     on["beliefs"] = [LEO, NOTE]
+    journal = []
+    monkeypatch.setattr(beliefs.activity, "record", lambda kind, text, **kw: journal.append((kind, text)))
     out = asyncio.run(beliefs.recall.ainvoke({"question": "what is Leo's favourite game?"}))
     assert "cached" in out and "Minecraft" in out and "wife" not in out
     out = asyncio.run(beliefs.belief_history.ainvoke({"about": "Leo's favourite game"}))
     assert out.startswith("error") and "can't be reached" in out
+    # every deliberate look into long-term memory leaves a line in his journal
+    assert [k for k, _ in journal] == ["memory", "memory"]
+    assert "recalled" in journal[0][1] and "1 belief(s)" in journal[0][1] and "cached snapshot" in journal[0][1]
+    assert "history of" in journal[1][1] and "unreachable" in journal[1][1]
 
 
 def test_forgetting_drops_notes_now_and_leaves_a_request_for_the_sleep_job(on):
