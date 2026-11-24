@@ -1,0 +1,33 @@
+# openWakeWord training config for Cortana ("Cortana" and "Hey Cortana" in one model).
+model_name: "cortana"
+target_phrase:
+  - "cortana"
+  - "hey cortana"
+custom_negative_phrases: [
+  "montana", "santana", "cortina", "corona", "banana", "carton", "cantata", "hosanna", "lasagna",
+  "tana", "court", "corner", "kardashian", "contain", "curtain", "cotton", "certain", "cortex",
+  "fortune", "for tana", "or tana", "hey montana", "hey santana", "hey corona", "okay nabu",
+  "hey google", "alexa", "hey siri", "cort", "quarter", "portal", "cordon", "tarzan", "hey there",
+  "hey anna", "hey donna", "hey tina", "hey honey", "hey buddy", "hey mama"]
+n_samples: 25000
+n_samples_val: 2500
+tts_batch_size: 350
+augmentation_batch_size: 64
+piper_sample_generator_path: "./piper-sample-generator"
+output_dir: "./my_custom_model"
+rir_paths: ["./mit_rirs"]
+background_paths: ["./audioset_16k", "./fma"]
+background_paths_duplication_rate: [1, 1]
+false_positive_validation_data_path: "./validation_set_features.npy"
+augmentation_rounds: 2
+feature_data_files:
+  "ACAV100M_sample": "./openwakeword_features_ACAV100M_2000_hrs_16bit.npy"
+batch_n_per_class:
+  "ACAV100M_sample": 1024
+  "adversarial_negative": 70
+  "positive": 70
+model_type: "dnn"
+layer_size: 32
+steps: 50000
+max_negative_weight: 1500
+target_false_positives_per_hour: 0.2

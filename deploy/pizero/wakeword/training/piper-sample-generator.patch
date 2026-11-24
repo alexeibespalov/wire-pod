@@ -1,0 +1,35 @@
+diff --git a/generate_samples.py b/generate_samples.py
+index 349ebde..5e3f491 100755
+--- a/generate_samples.py
++++ b/generate_samples.py
+@@ -231,18 +231,21 @@ def generate_samples(
+     _LOGGER.info("Done")
+ 
+ 
+-def remove_silence(x, frame_duration=0.030, sample_rate=16000, min_start=2000):
+-    """Uses webrtc voice activity detection to remove silence from the clips"""
++def remove_silence(x, frame_duration=0.030, sample_rate=16000, min_start=2000, pad_frames=3):
++    """Trim silence at the start and end only (webrtc VAD), keeping a few frames either side.
++    (Cortana training: the original kept only frames the VAD called speech, which also cut
++    consonants like the K of "Cortana" out of the middle of clips.)"""
+     vad = webrtcvad.Vad(0)
+     if x.dtype == np.float32 or x.dtype == np.float64:
+         x = (x * 32767).astype(np.int16)
+-    x_new = x[0:min_start].tolist()
+-    step_size = int(sample_rate * frame_duration)
+-    for i in range(min_start, x.shape[0] - step_size, step_size):
+-        vad_res = vad.is_speech(x[i : i + step_size].tobytes(), sample_rate)
+-        if vad_res:
+-            x_new.extend(x[i : i + step_size].tolist())
+-    return np.array(x_new).astype(np.int16)
++    step = int(sample_rate * frame_duration)
++    speech = [i for i in range(0, x.shape[0] - step, step)
++              if vad.is_speech(x[i : i + step].tobytes(), sample_rate)]
++    if not speech:
++        return x.astype(np.int16)
++    a = max(0, speech[0] - pad_frames * step)
++    b = min(x.shape[0], speech[-1] + (pad_frames + 1) * step)
++    return x[a:b].astype(np.int16)
+ 
+ 
+ def generate_audio(

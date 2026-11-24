@@ -1,0 +1,90 @@
+diff --git a/openwakeword/data.py b/openwakeword/data.py
+index 7a95306..ee37561 100755
+--- a/openwakeword/data.py
++++ b/openwakeword/data.py
+@@ -25,6 +25,12 @@ from typing import List, Tuple
+ import numpy as np
+ import itertools
+ import pronouncing
++# Cortana training: words missing from CMUdict (DeepPhonemizer's model download is gone)
++pronouncing.init_cmu()
++for _w, _p in {"cortana": "K AO0 R T AA1 N AH0"}.items():
++    if _w not in pronouncing.lookup:
++        pronouncing.pronunciations.append((_w, _p))
++        pronouncing.lookup.setdefault(_w, []).append(_p)
+ import torch
+ import audiomentations
+ import torch_audiomentations
+diff --git a/openwakeword/train.py b/openwakeword/train.py
+index 708cdb2..2965141 100755
+--- a/openwakeword/train.py
++++ b/openwakeword/train.py
+@@ -570,6 +570,17 @@ class Model(nn.Module):
+                 break
+ 
+ 
++def _drop_targets(texts, target_phrases):
++    """(Cortana training) With several target phrases ("cortana", "hey cortana"), partial
++    adversarial phrases can be a target itself ("cortana"): never train those as negatives.
++    Drops any text containing a word shared by every target phrase."""
++    key = set.intersection(*[set(t.lower().split()) for t in target_phrases])
++    targets = {t.lower().strip() for t in target_phrases}
++    kept = [t for t in texts if t.lower().strip() not in targets and not key & set(t.lower().split())]
++    logging.info(f"adversarial texts: dropped {len(texts) - len(kept)} containing {sorted(key)}")
++    return kept
++
++
+ # Separate function to convert onnx models to tflite format
+ def convert_onnx_to_tflite(onnx_model_path, output_path):
+     """Converts an ONNX version of an openwakeword model to the Tensorflow tflite format."""
+@@ -711,6 +722,7 @@ if __name__ == '__main__':
+                     N=config["n_samples"]//len(config["target_phrase"]),
+                     include_partial_phrase=1.0,
+                     include_input_words=0.2))
++            adversarial_texts = _drop_targets(adversarial_texts, config["target_phrase"])
+             generate_samples(text=adversarial_texts, max_samples=config["n_samples"]-n_current_samples,
+                              batch_size=config["tts_batch_size"]//7,
+                              noise_scales=[0.98], noise_scale_ws=[0.98], length_scales=[0.75, 1.0, 1.25],
+@@ -734,6 +746,7 @@ if __name__ == '__main__':
+                     N=config["n_samples_val"]//len(config["target_phrase"]),
+                     include_partial_phrase=1.0,
+                     include_input_words=0.2))
++            adversarial_texts = _drop_targets(adversarial_texts, config["target_phrase"])
+             generate_samples(text=adversarial_texts, max_samples=config["n_samples_val"]-n_current_samples,
+                              batch_size=config["tts_batch_size"]//7,
+                              noise_scales=[1.0], noise_scale_ws=[1.0], length_scales=[0.75, 1.0, 1.25],
+@@ -794,26 +807,26 @@ if __name__ == '__main__':
+             compute_features_from_generator(positive_clips_train_generator, n_total=len(os.listdir(positive_train_output_dir)),
+                                             clip_duration=config["total_length"],
+                                             output_file=os.path.join(feature_save_dir, "positive_features_train.npy"),
+-                                            device="gpu" if torch.cuda.is_available() else "cpu",
+-                                            ncpu=n_cpus if not torch.cuda.is_available() else 1)
++                                            device="cpu",  # (Cortana: onnxruntime here is CPU-only; use the cores)
++                                            ncpu=n_cpus)
+ 
+             compute_features_from_generator(negative_clips_train_generator, n_total=len(os.listdir(negative_train_output_dir)),
+                                             clip_duration=config["total_length"],
+                                             output_file=os.path.join(feature_save_dir, "negative_features_train.npy"),
+-                                            device="gpu" if torch.cuda.is_available() else "cpu",
+-                                            ncpu=n_cpus if not torch.cuda.is_available() else 1)
++                                            device="cpu",  # (Cortana: onnxruntime here is CPU-only; use the cores)
++                                            ncpu=n_cpus)
+ 
+             compute_features_from_generator(positive_clips_test_generator, n_total=len(os.listdir(positive_test_output_dir)),
+                                             clip_duration=config["total_length"],
+                                             output_file=os.path.join(feature_save_dir, "positive_features_test.npy"),
+-                                            device="gpu" if torch.cuda.is_available() else "cpu",
+-                                            ncpu=n_cpus if not torch.cuda.is_available() else 1)
++                                            device="cpu",  # (Cortana: onnxruntime here is CPU-only; use the cores)
++                                            ncpu=n_cpus)
+ 
+             compute_features_from_generator(negative_clips_test_generator, n_total=len(os.listdir(negative_test_output_dir)),
+                                             clip_duration=config["total_length"],
+                                             output_file=os.path.join(feature_save_dir, "negative_features_test.npy"),
+-                                            device="gpu" if torch.cuda.is_available() else "cpu",
+-                                            ncpu=n_cpus if not torch.cuda.is_available() else 1)
++                                            device="cpu",  # (Cortana: onnxruntime here is CPU-only; use the cores)
++                                            ncpu=n_cpus)
+         else:
+             logging.warning("Openwakeword features already exist, skipping data augmentation and feature generation")
+ 

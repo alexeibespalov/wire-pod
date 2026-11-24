@@ -1,0 +1,23 @@
+--- a/wyoming_satellite/satellite.py
++++ b/wyoming_satellite/satellite.py
+@@ -1251,6 +1251,20 @@
+ 
+         await super().event_from_server(event)
+ 
++        if (
++            Detection.is_type(event.type)
++            and (not self.is_streaming)
++            and (not self._is_paused)
++        ):
++            # Server asked to listen again without a wake word (follow-up question).
++            # The base class has already played the awake WAV for the detection (the mic
++            # stays muted for its length, as after a real wake word).
++            _LOGGER.debug("Follow-up listening requested by server")
++            self.is_streaming = True
++            await self._send_run_pipeline()
++            await self.trigger_streaming_start()
++            return
++
+         if is_run_satellite or is_transcript or is_error or is_pause_satellite:
+             # Stop streaming
+             self.is_streaming = False
