@@ -176,6 +176,42 @@ func timeoutFromEnv(names ...string) time.Duration {
 	return 8 * time.Second
 }
 
+var whisperMusic = regexp.MustCompile(`(?i)[♪♫]|\((?:[a-z ]*music[a-z ]*|singing)\)|\[MUSIC\]`)
+
+// overheardTranscript is for captures (/api-sdk/overhear): sounds nearby, not a request.
+// Unlike betterTranscript, music and TV dialogue are kept (they're what he's listening
+// to): Whisper's text when usable, else Vosk's; "(music)" style tags become a short note.
+func overheardTranscript(device string, pcm []byte, voskText string) string {
+	text, err := "", error(nil)
+	if httpBase, wyAddr := os.Getenv("WHISPER_HTTP"), os.Getenv("WYOMING_STT"); httpBase != "" || wyAddr != "" {
+		timeout := timeoutFromEnv("WHISPER_TIMEOUT", "WYOMING_STT_TIMEOUT") + 6*time.Second // long clip
+		if httpBase != "" {
+			text, err = whisperHTTPTranscribe(httpBase, pcm, timeout)
+		} else {
+			text, err = wyomingTranscribe(wyAddr, pcm, timeout)
+		}
+		if err != nil {
+			fmt.Printf("(Bot %s) Whisper failed on an overheard clip (%v); using Vosk\n", device, err)
+			text = ""
+		}
+	}
+	music := whisperMusic.MatchString(text)
+	text = strings.TrimSpace(whisperTag.ReplaceAllString(strings.NewReplacer("♪", " ", "♫", " ").Replace(text), ""))
+	text = strings.Join(strings.Fields(text), " ")
+	if text == "" || whisperGhost.MatchString(text) {
+		text = strings.TrimSpace(voskText)
+	}
+	switch {
+	case text == "" && music:
+		return "(music, no clear words)"
+	case text == "":
+		return "(nothing clear: quiet or just noise)"
+	case music:
+		return "(music) " + text
+	}
+	return text
+}
+
 // betterTranscript returns the Whisper transcript when configured and usable, else Vosk's.
 func betterTranscript(device string, pcm []byte, voskText string) string {
 	httpBase, wyAddr := os.Getenv("WHISPER_HTTP"), os.Getenv("WYOMING_STT")

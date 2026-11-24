@@ -20,6 +20,7 @@ import (
 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
 	"github.com/kercre123/wire-pod/chipper/pkg/scripting"
 	"github.com/kercre123/wire-pod/chipper/pkg/vars"
+	"github.com/kercre123/wire-pod/chipper/pkg/wirepod/overhear"
 )
 
 var serverFiles string = "./webroot/sdkapp"
@@ -73,6 +74,24 @@ func SdkapiHandler(w http.ResponseWriter, r *http.Request) {
 			OptIn: false,
 		})
 		fmt.Fprintf(w, "success")
+		return
+	case r.URL.Path == "/api-sdk/overhear":
+		// listen for N seconds without a wake word; the transcript reaches the LLM
+		// endpoint as "[overheard] ..." (see package overhear)
+		secs, err := strconv.ParseFloat(r.FormValue("seconds"), 64)
+		if err != nil || secs <= 0 {
+			secs = 10
+		}
+		if secs > 20 {
+			secs = 20
+		}
+		overhear.Arm(r.FormValue("serial"), secs, 8*time.Second)
+		if _, err := robot.Conn.AppIntent(ctx, &vectorpb.AppIntentRequest{Intent: "knowledge_question"}); err != nil {
+			overhear.Take(r.FormValue("serial"))
+			fmt.Fprint(w, "error: "+err.Error())
+			return
+		}
+		fmt.Fprintf(w, "listening")
 		return
 	case r.URL.Path == "/api-sdk/cloud_intent":
 		intent := r.FormValue("intent")

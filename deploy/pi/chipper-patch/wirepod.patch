@@ -33,18 +33,168 @@ index 24b5aa9..49cfb40 100644
  			// * end - modified from official vector-go-sdk
  		}()
  		for range start {
+diff --git a/chipper/pkg/wirepod/overhear/overhear.go b/chipper/pkg/wirepod/overhear/overhear.go
+new file mode 100644
+index 0000000..63d5179
+--- /dev/null
++++ b/chipper/pkg/wirepod/overhear/overhear.go
+@@ -0,0 +1,46 @@
++// Package overhear lets the agent ask Vector to just listen for a few seconds (no wake
++// word) and get back what was said, without it being treated as a request to him.
++//
++// /api-sdk/overhear?serial=ESN&seconds=10 arms a capture for that robot and starts a
++// wake-word-less listen (the "knowledge_question" app intent, as follow-ups do). The next
++// knowledge-graph stream from that robot is then read for the full N seconds (end-of-speech
++// detection ignored), transcribed locally (Vosk + Whisper), and passed on to the LLM
++// endpoint as "[overheard] <text>", which the agent recognises as a capture, not a turn.
++// Nothing is saved.
++package overhear
++
++import (
++	"sync"
++	"time"
++)
++
++const Prefix = "[overheard] "
++
++type capture struct {
++	seconds float64
++	expires time.Time
++}
++
++var (
++	mu      sync.Mutex
++	pending = map[string]capture{}
++)
++
++// Arm makes the next knowledge-graph stream from esn (starting within ttl) a capture.
++func Arm(esn string, seconds float64, ttl time.Duration) {
++	mu.Lock()
++	defer mu.Unlock()
++	pending[esn] = capture{seconds: seconds, expires: time.Now().Add(ttl)}
++}
++
++// Take returns the armed capture length for esn and disarms it.
++func Take(esn string) (float64, bool) {
++	mu.Lock()
++	defer mu.Unlock()
++	c, ok := pending[esn]
++	delete(pending, esn)
++	if !ok || time.Now().After(c.expires) {
++		return 0, false
++	}
++	return c.seconds, true
++}
+diff --git a/chipper/pkg/wirepod/sdkapp/server.go b/chipper/pkg/wirepod/sdkapp/server.go
+index a8c4091..9febf59 100755
+--- a/chipper/pkg/wirepod/sdkapp/server.go
++++ b/chipper/pkg/wirepod/sdkapp/server.go
+@@ -20,6 +20,7 @@ import (
+ 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
+ 	"github.com/kercre123/wire-pod/chipper/pkg/scripting"
+ 	"github.com/kercre123/wire-pod/chipper/pkg/vars"
++	"github.com/kercre123/wire-pod/chipper/pkg/wirepod/overhear"
+ )
+ 
+ var serverFiles string = "./webroot/sdkapp"
+@@ -74,6 +75,24 @@ func SdkapiHandler(w http.ResponseWriter, r *http.Request) {
+ 		})
+ 		fmt.Fprintf(w, "success")
+ 		return
++	case r.URL.Path == "/api-sdk/overhear":
++		// listen for N seconds without a wake word; the transcript reaches the LLM
++		// endpoint as "[overheard] ..." (see package overhear)
++		secs, err := strconv.ParseFloat(r.FormValue("seconds"), 64)
++		if err != nil || secs <= 0 {
++			secs = 10
++		}
++		if secs > 20 {
++			secs = 20
++		}
++		overhear.Arm(r.FormValue("serial"), secs, 8*time.Second)
++		if _, err := robot.Conn.AppIntent(ctx, &vectorpb.AppIntentRequest{Intent: "knowledge_question"}); err != nil {
++			overhear.Take(r.FormValue("serial"))
++			fmt.Fprint(w, "error: "+err.Error())
++			return
++		}
++		fmt.Fprintf(w, "listening")
++		return
+ 	case r.URL.Path == "/api-sdk/cloud_intent":
+ 		intent := r.FormValue("intent")
+ 		robot.Conn.AppIntent(ctx,
 diff --git a/chipper/pkg/wirepod/stt/vosk/Vosk.go b/chipper/pkg/wirepod/stt/vosk/Vosk.go
-index f99981e..a7286b2 100755
+index f99981e..e9a01e6 100755
 --- a/chipper/pkg/wirepod/stt/vosk/Vosk.go
 +++ b/chipper/pkg/wirepod/stt/vosk/Vosk.go
-@@ -218,6 +218,8 @@ func STT(req sr.SpeechRequest) (string, error) {
- 		gpRecs[recind].InUse = false
+@@ -13,6 +13,7 @@ import (
+ 	vosk "github.com/kercre123/vosk-api/go"
+ 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
+ 	"github.com/kercre123/wire-pod/chipper/pkg/vars"
++	"github.com/kercre123/wire-pod/chipper/pkg/wirepod/overhear"
+ 	sr "github.com/kercre123/wire-pod/chipper/pkg/wirepod/speechrequest"
+ )
+ 
+@@ -193,6 +194,11 @@ func STT(req sr.SpeechRequest) (string, error) {
+ 		logger.Println("Using grammer-optimized recognizer")
+ 		withGrm = true
  	}
- 	transcribedText := jres["text"].(string)
++	// an armed capture (/api-sdk/overhear): listen the full time, not until a pause
++	captureSecs, isCapture := 0.0, false
++	if req.IsKG {
++		captureSecs, isCapture = overhear.Take(req.Device)
++	}
+ 	rec, recind := getRec(withGrm)
+ 	rec.SetWords(1)
+ 	rec.AcceptWaveform(req.FirstReq)
+@@ -200,7 +206,17 @@ func STT(req sr.SpeechRequest) (string, error) {
+ 	for {
+ 		chunk, err := req.GetNextStreamChunk()
+ 		if err != nil {
+-			return "", err
++			if isCapture && len(req.DecodedMicData) > 0 {
++				break // the robot ended the stream early: use what we have
++			}
++			return "", err // (as upstream: the half-fed recognizer is not reused)
++		}
++		if isCapture {
++			rec.AcceptWaveform(chunk)
++			if float64(len(req.DecodedMicData)) >= captureSecs*32000 { // 16 kHz s16le
++				break
++			}
++			continue
+ 		}
+ 		speechIsDone, doProcess := req.DetectEndOfSpeech()
+ 		if doProcess {
+@@ -212,12 +228,27 @@ func STT(req sr.SpeechRequest) (string, error) {
+ 	}
+ 	var jres map[string]interface{}
+ 	json.Unmarshal([]byte(rec.FinalResult()), &jres)
++	releaseRec(withGrm, recind)
++	transcribedText := jres["text"].(string)
++	if isCapture {
++		// never saved (no captureSample): this is people talking nearby, not a request
++		text := overheardTranscript(req.Device, req.DecodedMicData, transcribedText)
++		logger.Println(fmt.Sprintf("Bot %s overheard (%.1fs): %s", req.Device,
++			float64(len(req.DecodedMicData))/32000, text))
++		return overhear.Prefix + text, nil
++	}
 +	captureSample(req.DecodedMicData, transcribedText)
 +	transcribedText = betterTranscript(req.Device, req.DecodedMicData, transcribedText) // Whisper, if set
- 	logger.Println("Bot " + req.Device + " Transcribed text: " + transcribedText)
- 	return transcribedText, nil
++	logger.Println("Bot " + req.Device + " Transcribed text: " + transcribedText)
++	return transcribedText, nil
++}
++
++func releaseRec(withGrm bool, recind int) {
++	recsmu.Lock()
++	defer recsmu.Unlock()
+ 	if withGrm {
+ 		grmRecs[recind].InUse = false
+ 	} else {
+ 		gpRecs[recind].InUse = false
+ 	}
+-	transcribedText := jres["text"].(string)
+-	logger.Println("Bot " + req.Device + " Transcribed text: " + transcribedText)
+-	return transcribedText, nil
  }
 diff --git a/chipper/pkg/wirepod/stt/vosk/capture.go b/chipper/pkg/wirepod/stt/vosk/capture.go
 new file mode 100644
@@ -95,10 +245,10 @@ index 0000000..176a73b
 +}
 diff --git a/chipper/pkg/wirepod/stt/vosk/wyoming.go b/chipper/pkg/wirepod/stt/vosk/wyoming.go
 new file mode 100644
-index 0000000..72a4ba5
+index 0000000..1699614
 --- /dev/null
 +++ b/chipper/pkg/wirepod/stt/vosk/wyoming.go
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,254 @@
 +package wirepod_vosk
 +
 +// Optional Whisper on top of Vosk. Each finished utterance (16 kHz mono s16le PCM) goes to
@@ -275,6 +425,42 @@ index 0000000..72a4ba5
 +		}
 +	}
 +	return 8 * time.Second
++}
++
++var whisperMusic = regexp.MustCompile(`(?i)[♪♫]|\((?:[a-z ]*music[a-z ]*|singing)\)|\[MUSIC\]`)
++
++// overheardTranscript is for captures (/api-sdk/overhear): sounds nearby, not a request.
++// Unlike betterTranscript, music and TV dialogue are kept (they're what he's listening
++// to): Whisper's text when usable, else Vosk's; "(music)" style tags become a short note.
++func overheardTranscript(device string, pcm []byte, voskText string) string {
++	text, err := "", error(nil)
++	if httpBase, wyAddr := os.Getenv("WHISPER_HTTP"), os.Getenv("WYOMING_STT"); httpBase != "" || wyAddr != "" {
++		timeout := timeoutFromEnv("WHISPER_TIMEOUT", "WYOMING_STT_TIMEOUT") + 6*time.Second // long clip
++		if httpBase != "" {
++			text, err = whisperHTTPTranscribe(httpBase, pcm, timeout)
++		} else {
++			text, err = wyomingTranscribe(wyAddr, pcm, timeout)
++		}
++		if err != nil {
++			fmt.Printf("(Bot %s) Whisper failed on an overheard clip (%v); using Vosk\n", device, err)
++			text = ""
++		}
++	}
++	music := whisperMusic.MatchString(text)
++	text = strings.TrimSpace(whisperTag.ReplaceAllString(strings.NewReplacer("♪", " ", "♫", " ").Replace(text), ""))
++	text = strings.Join(strings.Fields(text), " ")
++	if text == "" || whisperGhost.MatchString(text) {
++		text = strings.TrimSpace(voskText)
++	}
++	switch {
++	case text == "" && music:
++		return "(music, no clear words)"
++	case text == "":
++		return "(nothing clear: quiet or just noise)"
++	case music:
++		return "(music) " + text
++	}
++	return text
 +}
 +
 +// betterTranscript returns the Whisper transcript when configured and usable, else Vosk's.

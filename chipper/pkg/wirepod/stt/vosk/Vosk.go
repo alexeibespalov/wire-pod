@@ -13,6 +13,7 @@ import (
 	vosk "github.com/kercre123/vosk-api/go"
 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
 	"github.com/kercre123/wire-pod/chipper/pkg/vars"
+	"github.com/kercre123/wire-pod/chipper/pkg/wirepod/overhear"
 	sr "github.com/kercre123/wire-pod/chipper/pkg/wirepod/speechrequest"
 )
 
@@ -193,6 +194,11 @@ func STT(req sr.SpeechRequest) (string, error) {
 		logger.Println("Using grammer-optimized recognizer")
 		withGrm = true
 	}
+	// an armed capture (/api-sdk/overhear): listen the full time, not until a pause
+	captureSecs, isCapture := 0.0, false
+	if req.IsKG {
+		captureSecs, isCapture = overhear.Take(req.Device)
+	}
 	rec, recind := getRec(withGrm)
 	rec.SetWords(1)
 	rec.AcceptWaveform(req.FirstReq)
@@ -200,7 +206,17 @@ func STT(req sr.SpeechRequest) (string, error) {
 	for {
 		chunk, err := req.GetNextStreamChunk()
 		if err != nil {
-			return "", err
+			if isCapture && len(req.DecodedMicData) > 0 {
+				break // the robot ended the stream early: use what we have
+			}
+			return "", err // (as upstream: the half-fed recognizer is not reused)
+		}
+		if isCapture {
+			rec.AcceptWaveform(chunk)
+			if float64(len(req.DecodedMicData)) >= captureSecs*32000 { // 16 kHz s16le
+				break
+			}
+			continue
 		}
 		speechIsDone, doProcess := req.DetectEndOfSpeech()
 		if doProcess {
@@ -212,14 +228,27 @@ func STT(req sr.SpeechRequest) (string, error) {
 	}
 	var jres map[string]interface{}
 	json.Unmarshal([]byte(rec.FinalResult()), &jres)
+	releaseRec(withGrm, recind)
+	transcribedText := jres["text"].(string)
+	if isCapture {
+		// never saved (no captureSample): this is people talking nearby, not a request
+		text := overheardTranscript(req.Device, req.DecodedMicData, transcribedText)
+		logger.Println(fmt.Sprintf("Bot %s overheard (%.1fs): %s", req.Device,
+			float64(len(req.DecodedMicData))/32000, text))
+		return overhear.Prefix + text, nil
+	}
+	captureSample(req.DecodedMicData, transcribedText)
+	transcribedText = betterTranscript(req.Device, req.DecodedMicData, transcribedText) // Whisper, if set
+	logger.Println("Bot " + req.Device + " Transcribed text: " + transcribedText)
+	return transcribedText, nil
+}
+
+func releaseRec(withGrm bool, recind int) {
+	recsmu.Lock()
+	defer recsmu.Unlock()
 	if withGrm {
 		grmRecs[recind].InUse = false
 	} else {
 		gpRecs[recind].InUse = false
 	}
-	transcribedText := jres["text"].(string)
-	captureSample(req.DecodedMicData, transcribedText)
-	transcribedText = betterTranscript(req.Device, req.DecodedMicData, transcribedText) // Whisper, if set
-	logger.Println("Bot " + req.Device + " Transcribed text: " + transcribedText)
-	return transcribedText, nil
 }
