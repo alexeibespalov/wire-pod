@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-core"
+version = "0.1.0"
+description = "The shared brain of the home assistants (Vector, Cortana): ReAct loop, LLM setup, skills, conversation folding, notes, belief store client and reconcile job, A2A"
+requires-python = ">=3.11"
+# Each agent's requirements.txt pins the heavy dependencies (langgraph, langchain-*, fastapi, httpx,
+# a2a-sdk); this package adds none of its own so the two images cannot drift apart through it.
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["agent_core*"]

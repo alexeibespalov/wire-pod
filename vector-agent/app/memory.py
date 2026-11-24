@@ -1,61 +1,19 @@
-"""Long-term memory: a small JSON list of facts, injected into every system prompt.
+"""Vector's side of his notes: how a spoken line is labelled with who said it (his face
+recognition), overheard talk, and the per-turn writer that jots lasting facts down.
 
-Kept deliberately simple: Vector's memory is a few dozen facts about his people,
-not a document store. Survives restarts (lives in the agent data volume).
+The notes themselves (storage, remember/forget, what is already believed) are shared with
+Cortana: agent_core.notes. With the belief store on they are TODAY'S NOTES, filed as
+beliefs while he sleeps (app/belief_sleep.py -> agent_core.reconcile).
 """
-import json
 import re
-import threading
 from datetime import datetime
 
 from . import config
+from agent_core import notes
+from agent_core.notes import (FORGET_PREFIX, MAX_FACTS, _LOCK, _load, _norm, _save, add,  # noqa: F401
+                              all_facts, apply_plan, forget, known_beliefs_block, listing)
 
-_PATH = config.DATA_DIR / "memories.json"
-_LOCK = threading.Lock()
-MAX_FACTS = 100
-
-
-def _load() -> list[dict]:
-    try:
-        return json.loads(_PATH.read_text())
-    except (FileNotFoundError, ValueError):
-        return []
-
-
-def _save(facts: list[dict]) -> None:
-    _PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(facts, indent=2, ensure_ascii=False))
-    tmp.replace(_PATH)
-
-
-def all_facts() -> list[str]:
-    with _LOCK:
-        return [f["fact"] for f in _load()]
-
-
-def add(fact: str) -> str:
-    fact = " ".join(fact.split())
-    if not fact:
-        return "nothing to remember"
-    with _LOCK:
-        facts = _load()
-        if any(f["fact"].lower() == fact.lower() for f in facts):
-            return "already remembered"
-        facts.append({"fact": fact, "saved": datetime.now(config.TIMEZONE).isoformat(timespec="minutes")})
-        _save(facts[-MAX_FACTS:])
-    return "remembered"
-
-
-def forget(match: str) -> str:
-    match = match.lower().strip()
-    with _LOCK:
-        facts = _load()
-        keep = [f for f in facts if match not in f["fact"].lower()]
-        removed = len(facts) - len(keep)
-        if removed:
-            _save(keep)
-    return f"forgot {removed} fact(s)" if removed else "no matching memory"
+_llm = notes.writer_llm
 
 
 # --------------------------------------------------------------- automatic memory writer
@@ -86,9 +44,10 @@ or anything already saved (Vector may have just saved it himself; it's in the li
 Each fact: one short third-person sentence that names the person ("Leo's favourite game \
 is Minecraft"). If a name is unknown, say "a child" or "someone". Most exchanges need no \
 change at all.
+{overheard_rule}
 
 Today is {today}.
-
+{beliefs}
 KNOWN FACTS:
 {facts}
 
@@ -101,13 +60,42 @@ Reply as JSON: {{"add": ["..."], "update": [{{"n": 3, "fact": "..."}}], "remove"
 
 _writer = None
 
+OVERHEARD_RULE = """\
+- A line marked OVERHEARD is a fragment of people talking near Vector (a call, a meeting, \
+the TV) that nobody said to him, often misheard. Never turn it into a fact about anyone. \
+If, and only if, the topic is clear, you may add ONE note about it that starts with \
+"Overheard" and the day, e.g. "Overheard (Mon 23 November): grown-ups talking about a work \
+project on machines and unknown languages". Topic only: no names, numbers, quotes or \
+details, nothing private (health, money, arguments, someone's secrets), and nothing that \
+sounds like TV or film dialogue. Skip it if a similar Overheard note exists."""
 
-def _llm():
-    global _writer
-    if _writer is None:
-        from . import llm as llms
-        _writer = llms.chat(temperature=0, timeout=45, max_retries=1, max_tokens=900)
-    return _writer
+# A voice turn he judged "not for me" (wake word misfired on people talking nearby: a call,
+# a meeting, the TV). The heard text is kept, tagged, so later readers (Vector himself, the
+# memory writers, the nightly summary) know it's a misheard fragment nobody said to him.
+OVERHEARD_TAG = "(overheard, not said to you)"
+
+
+def tag_overheard_in(messages: list) -> list:
+    """The turn's (last) human message, tagged as overheard (same id: replaces it)."""
+    from langchain_core.messages import HumanMessage
+    for i in range(len(messages) - 1, -1, -1):
+        m = messages[i]
+        if isinstance(m, HumanMessage):
+            if isinstance(m.content, str) and OVERHEARD_TAG not in m.content:
+                messages = list(messages)
+                messages[i] = HumanMessage(content=tag_overheard(m.content), id=m.id)
+            break
+    return messages
+
+
+def tag_overheard(said: str) -> str:
+    """'(eyes: ...)\nwords' -> '(eyes: ...)\n(overheard, not said to you) words'."""
+    if OVERHEARD_TAG in said:
+        return said
+    head, sep, body = said.partition("\n")
+    if sep and head.lstrip().startswith("(eyes:"):
+        return f"{head}\n{OVERHEARD_TAG} {body}"
+    return f"{OVERHEARD_TAG} {said}"
 
 
 _NOTE = re.compile(r"^\s*\(eyes:([^)]*)\)\s*", re.S)
@@ -120,9 +108,12 @@ def speaker_line(said: str) -> str:
     if not m:
         return f"SOMEONE: {said.strip()}"
     note, text = m.group(1), said[m.end():].strip()
+    when = re.search(r"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w* [\d:]+ [AP]M", note)
+    if text.startswith(OVERHEARD_TAG):
+        return (f"OVERHEARD{f' ({when.group(0)})' if when else ''}, not said to Vector, "
+                f"partial and maybe misheard: {text[len(OVERHEARD_TAG):].strip()}")
     who = re.match(r"\s*([A-Z][\w-]*) is right in front of you", note)
     name = who.group(1).upper() if who else "SOMEONE (face not recognised)"
-    when = re.search(r"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w* [\d:]+ [AP]M", note)
     return f"{name}{f' ({when.group(0)})' if when else ''}: {text}"
 
 
@@ -132,59 +123,20 @@ async def reflect(said: str, reply: str) -> list[str]:
     import re
     from langchain_core.messages import HumanMessage
     body = re.sub(r"^\(eyes:[^)]*\)\s*", "", said.split("\n", 1)[-1] if "\n" in said else said).strip()
+    body = body.replace(OVERHEARD_TAG, "").strip()
     if len(body.split()) < 4:            # "stop", "yes", "what?" ... nothing to learn
         return []
-    with _LOCK:
-        facts = _load()
-    listing = "\n".join(f"{i + 1}. {f['fact']}" for i, f in enumerate(facts)) or "(none yet)"
+    listing = notes.listing()
     today = datetime.now(config.TIMEZONE).strftime("%A %-d %B %Y")
     from . import llm as llms
     try:
         plan = await llms.ainvoke_json(_llm(), [HumanMessage(_WRITER_PROMPT.format(
-            today=today, facts=listing, said=speaker_line(said)[-800:],
+            overheard_rule=OVERHEARD_RULE, today=today, facts=listing, beliefs=known_beliefs_block(),
+            said=speaker_line(said)[-800:],
             reply=re.sub(r"\{\{[^}]*\}\}", "", reply)[-600:]))])
     except ValueError:
         return []
     return apply_plan(plan)
 
 
-def _norm(t: str) -> str:
-    return re.sub(r"[^a-z0-9 ]", "", t.lower()).strip()
-
-
-def apply_plan(plan: dict, max_add: int = 3) -> list[str]:
-    """Apply {"add": [...], "update": [{"n", "fact"}], "remove": [n]} (1-based numbers
-    referring to the fact list the model was shown). Returns what changed."""
-    changed: list[str] = []
-    now = datetime.now(config.TIMEZONE).isoformat(timespec="minutes")
-    with _LOCK:
-        facts = _load()
-        n_old = len(facts)
-        for u in plan.get("update") or []:
-            try:
-                i = int(u["n"]) - 1
-                new = " ".join(str(u["fact"]).split())[:200]
-            except (KeyError, ValueError, TypeError):
-                continue
-            new = re.sub(r"^\s*\d+[.)]\s*", "", new)
-            if 0 <= i < n_old and new:
-                changed.append(f"updated: {facts[i]['fact']} -> {new}")
-                facts[i] = {"fact": new, "saved": now}
-        drop = set()
-        for r in plan.get("remove") or []:
-            try:
-                i = int(r) - 1
-            except (ValueError, TypeError):
-                continue
-            if 0 <= i < n_old:
-                drop.add(i)
-                changed.append(f"forgot: {facts[i]['fact']}")
-        facts = [f for i, f in enumerate(facts) if i not in drop]
-        for a in (plan.get("add") or [])[:max_add]:
-            a = re.sub(r"^\s*\d+[.)]\s*", "", " ".join(str(a).split()))[:200]
-            if a and not any(_norm(f["fact"]) == _norm(a) for f in facts):
-                facts.append({"fact": a, "saved": now})
-                changed.append(f"saved: {a}")
-        if changed:
-            _save(facts[-MAX_FACTS:])
-    return changed
+notes.speaker_line = speaker_line       # the reconcile job reads transcripts with his labels

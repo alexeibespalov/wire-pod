@@ -32,6 +32,7 @@ from .navmap import show_map, where_am_i
 from .explore import exploration_findings
 from .places import PLACE_TOOLS
 from .vision import look
+from . import beliefs as _beliefs
 
 
 # --------------------------------------------------------------------- movement
@@ -194,19 +195,21 @@ def remember(fact: str) -> str:
     as a short third-person sentence that names who it's about (e.g. "Leo's favourite
     game is Animal Crossing", "Alexei's sister is called Mia"). Use when someone tells you
     something worth knowing on another day, or asks you to remember something. (Today's
-    chat is kept in your conversation notes anyway; this is for things that should last.)"""
+    chat is kept in your conversation notes anyway; this is for things that should last.)
+    It goes into today's notes and becomes part of your long-term memory when you sleep."""
     return memory.add(fact)
 
 
 @tool
 def forget(about: str) -> str:
-    """Delete remembered facts containing this word or phrase, when the user asks you
-    to forget something or a fact is wrong."""
+    """Let go of what you remember about this word or phrase, when someone asks you to
+    forget something or a fact is wrong. Today's notes about it go at once; a long-term
+    belief is dropped the next time you sleep."""
     return memory.forget(about)
 
 
 TOOLS = [drive, turn, move_head, move_lift, do_action, set_eye_color, battery_status,
-         remember, forget,
+         remember, forget, *(_beliefs.BELIEF_TOOLS if _beliefs.ENABLED else []),   # recall, belief_history
          load_skill, play_animation, look, show_picture, show_text, show_last_view, draw_picture,
          show_emoji, learn_face, forget_face, *MUSIC_TOOLS,
          recent_exploration_finds, set_exploration_capture, sleep_routine_status, run_sleep_routine_now,
@@ -236,3 +239,10 @@ async def say_aloud(text: str) -> str:
 
 TOOLS.append(say_aloud)
 TOOLS_BY_NAME[say_aloud.name] = say_aloud
+
+# ------------------------------------------------------------ the other assistant
+from agent_core import a2a as _a2a  # noqa: E402
+
+if (_peer := _a2a.peer_tool(lambda: turn_state.channel)) is not None:    # e.g. ask_cortana
+    TOOLS.append(_peer)
+    TOOLS_BY_NAME[_peer.name] = _peer

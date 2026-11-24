@@ -22,17 +22,25 @@ repeatedly or over time = these tools.
   save a routine (cheaper and steadier than an instruction), then schedule it:
   ```
   save_routine(name="watch-tv-game", description="Watch a video game on the TV and react",
-    steps=[{"do":"tool","name":"look","args":{"question":"What is happening in the video game on the TV screen right now?","head":"up"}},
-           {"do":"think","prompt":"Compare with earlier runs. If something exciting or funny just happened in the game, react in a few words like a fan watching. Otherwise reply SILENT.","speak":true}])
-  schedule_action(routine="watch-tv-game", every_seconds=5, for_minutes=30, hold_still=true, title="watching Leo play")
+    steps=[{"do":"tool","name":"look","args":{"question":"What is happening in the video game on the TV screen right now?","head":"up","listen_seconds":10}},
+           {"do":"think","prompt":"Compare with earlier runs. Use what you saw AND what you overheard (TV sound, what people said). If something exciting or funny just happened, react in a few words like a friend watching along. Otherwise reply SILENT.","speak":true}])
+  schedule_action(routine="watch-tv-game", every_seconds=15, for_minutes=30, hold_still=true, title="watching Leo play")
   ```
+  `listen_seconds` makes a look also listen for that long right after the picture
+  (the words are transcribed on the Pi; nothing is recorded), so you follow the sound
+  too: what's said on the TV, and what people say about it. Use it when watching TV,
+  videos or games together. It listens at most once a minute (every 4th look at 15 s);
+  the other looks just take the picture, so react to sound only when the look result
+  has "(overheard while looking: ...)". Repeat every 15 seconds or more.
 - Daily things: `daily_at="8:00 am"`.
 - Quiet note-taking (no talking): `speak=false`. People can ask you about it later.
 
 ## Before you start watching something
 - Face the thing first (turn), and aim the camera in the routine's look step with
   `"args": {"question": "...", "head": "up"}` (TV / people) or `"head": "down"` (desk).
-  Then `hold_still=true` so you don't wander off between looks.
+  Then `hold_still=true` so you don't wander off between looks. If you turn toward
+  someone who says "Hey Vector" while you're watching, you turn back by yourself at the
+  next look.
 - Tell them briefly what you'll do and for how long ("Ooh, I'll watch for half an hour!").
 
 ## While it runs
@@ -40,6 +48,8 @@ repeatedly or over time = these tools.
   to answer "what's happening?", "who's winning?", "did you see that?".
 - "Stop watching", "that's enough", "cancel the reminder": `cancel_schedule` (by id or a
   word from its title).
+- "RECENTLY STOPPED" in your instructions means it isn't running any more (and why).
+  Don't say you've been watching all along if it stopped.
 - `list_schedules` shows everything that's scheduled.
 
 ## Limits

@@ -26,8 +26,9 @@ from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
 from . import llm as llms
-from . import activity, body, explore_capture, faces, guard, library, memory, navmap, practice, scheduler, sleep_routine, turn
+from . import activity, beliefs, body, explore_capture, faces, guard, library, listen, memory, navmap, practice, scheduler, sleep_routine, turn
 from .audio import PLAYER
+from . import belief_sleep, compaction  # noqa: F401  (register the sleep jobs: beliefs, folding, pruning)
 
 def _setup_file_log() -> None:
     """Keep the agent's own log (conversations, tools, presence, errors) on the data
@@ -248,6 +249,7 @@ async def lifespan(app: FastAPI):
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     PLAYER.bind_loop(asyncio.get_running_loop())
     explore_capture.bind_loop(asyncio.get_running_loop())
+    beliefs.start()          # long-term memory on the NUC: cached current beliefs, refreshed in the background
     explore_capture.start()  # photos when his own exploring meets obstacles/objects (hooks faces' SDK link)
     sleep_routine.start()    # night-time chores while he sleeps (registers its hook before faces.start)
     navmap.register()  # nav map feed rides on the same SDK link (before it connects)
@@ -316,6 +318,7 @@ async def chat_completions(request: Request):
             step_text: list[str] = []
             step_tools: set[str] = set()
             intent_sent = False  # a built-in behaviour answered the request: say nothing more
+            overheard = False    # he judged it "not for me" (people talking nearby)
 
             def speak(piece: str):
                 if intent_sent or _SILENT_WORD.match(piece or ""):
@@ -353,7 +356,7 @@ async def chat_completions(request: Request):
                                 # music: playback starts after the reply, so narration
                                 # around these calls ("let me try again...") is just noise
                                 quiet_step = uses_control or bool(step_tools & _QUIET_STEP_TOOLS)
-                                if text_out.strip() and not quiet_step:
+                                if text_out.strip() and not quiet_step and not _SILENT_WORD.match(text_out):
                                     # safety laws, post-hook: check words before they're spoken
                                     safe = await guard.check_speech(text_out, f"{note}\n{text}")
                                     if safe is not None:
@@ -399,6 +402,9 @@ async def chat_completions(request: Request):
             turn.close_intent_slot()
             if final and _SILENT_WORD.match(str(final)):
                 final = None                   # nothing worth saying (e.g. a silence turn)
+                if text != SILENCE_TURN:
+                    overheard = True
+                    log.info("[%s] not for me (overheard?): staying quiet, not listening on", thread)
                 if not said:
                     yield _chunk(cid, model, "{{playAnimationWI||dartingEyes}}")
             if not intent_sent and not _CUE.sub("", "".join(said)).strip() and final:  # nothing spoken by the LLM
@@ -426,7 +432,8 @@ async def chat_completions(request: Request):
             _last_reply.update(text=spoken, t=time.time(), from_silence=text == SILENCE_TURN)
             activity.record("conversation", f"{note} heard: \"{text[:120]}\" -> I said: \"{spoken[:160]}\"")
             if text != SILENCE_TURN:                        # nobody said anything to remember
-                _bg(_memory_pass(f"{note}\n{text}", spoken))   # automatic memory, after the reply
+                heard = f"{note}\n{text}"
+                _bg(_memory_pass(memory.tag_overheard(heard) if overheard else heard, spoken))
             yield _chunk(cid, model, None, "stop")
             yield "data: [DONE]\n\n"
             # Start music queued this turn, or resume music the wake word paused,
@@ -441,7 +448,22 @@ async def chat_completions(request: Request):
         yield _chunk(cid, model, None, "stop")
         yield "data: [DONE]\n\n"
 
-    if _is_stop(text) and PLAYER.active():
+    async def capture_end():
+        # an overhear capture (app/listen.py), not someone talking to him: no reply
+        yield _chunk(cid, model, None, "stop")
+        yield "data: [DONE]\n\n"
+
+    if listen.is_capture(text):
+        heard = listen.strip(text)
+        scheduler.on_turn_start()        # wire-pod took behaviour control for the listen
+        taken = listen.deliver(text)
+        log.info("overheard%s: %s", "" if taken else " (nobody waiting, dropped)", heard[:200])
+        if not (taken and listen.addressed_to_him(heard)):
+            gen = capture_end()
+        else:                            # "Hey Vector, ..." while he was already listening
+            text = heard
+            gen = run_stream()
+    elif _is_stop(text) and PLAYER.active():
         gen = stop_fast()
     elif _is_silence(text) and followup and _promised_recently():
         log.info("silence after a promise (%r): letting him do what he said", _last_reply["text"][-80:])

@@ -68,12 +68,19 @@ services:
       - ./whisper-cpp:/whisper:ro
 
   vector-agent:
-    build: ./vector-agent
+    build:
+      context: .                       # ~/wire-pod: the image also needs ./agent-core (see .dockerignore)
+      dockerfile: vector-agent/Dockerfile
     image: vector-agent:local
     container_name: vector-agent
     network_mode: host
     restart: unless-stopped
-    env_file: .env
+    # vector.common.env: settings that do not depend on the brain profile (belief store, A2A,
+    # the other assistant). ./use-llm.sh rewrites .env from a profile, so anything that must
+    # survive a profile switch lives here. .env is listed last and wins on a clash.
+    env_file:
+      - vector.common.env
+      - .env
     environment:
       LISTEN_HOST: 127.0.0.1
       LISTEN_PORT: "8091"
@@ -96,6 +103,35 @@ services:
           propagation: rslave
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Cortana: the voice assistant on the Pi Zero satellite (192.168.1.96, wyoming-satellite) -
+  # Vector's ReAct agent without the robot (source: <repo>/cortana-agent, synced to
+  # ./cortana-agent). It connects OUT to the satellite (taking the place Home Assistant's
+  # Wyoming integration had), hears through vector-whisper and speaks through piper.
+  # Claude key etc. in ./cortana.env (chmod 600, separate from Vector's .env so use-llm.sh
+  # never switches her). State in ./cortana-data. Text test door: 127.0.0.1:8092.
+  cortana-agent:
+    build:
+      context: .
+      dockerfile: cortana-agent/Dockerfile
+    image: cortana-agent:local
+    container_name: cortana-agent
+    network_mode: host
+    restart: unless-stopped
+    env_file: cortana.env
+    environment:
+      LISTEN_HOST: 127.0.0.1
+      LISTEN_PORT: "8092"
+      AGENT_TZ: Europe/London
+      WHISPER_URL: http://127.0.0.1:10330
+      PIPER_URI: tcp://127.0.0.1:10200
+    volumes:
+      - ./cortana-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3

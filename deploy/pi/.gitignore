@@ -3,3 +3,5 @@
 data/
 intent-data/en-US.original.json
 agent-data/
+cortana.env
+cortana-data/

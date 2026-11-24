@@ -7,11 +7,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-co
     ffmpeg fluidsynth timgm6mb-soundfont \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt && pip freeze > /srv/requirements.lock
+# Built from the folder that holds both agents and agent-core (see compose.yaml: context "."),
+# because the shared brain lives in ../agent-core.
+COPY vector-agent/requirements.txt .
+RUN pip install -r requirements.txt
+COPY agent-core /srv/agent-core
+RUN pip install --no-deps /srv/agent-core && pip freeze > /srv/requirements.lock
 
-COPY app ./app
-COPY skills ./skills
+COPY vector-agent/app ./app
+COPY vector-agent/skills ./skills
 
 # runs as non-root; /data is the agent's state volume (threads, memories)
 # HOME holds .anki_vector/ (SDK config + cert, bind-mounted read-only) for the face watcher

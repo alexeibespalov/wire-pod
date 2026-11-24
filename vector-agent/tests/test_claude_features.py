@@ -107,3 +107,27 @@ def test_home_skill_unlocks_all_home_tools(monkeypatch):
     loaded = [TM("SKILL home loaded. Follow these instructions:", tool_call_id="1", name="load_skill")]
     after = agent.active_tool_names(loaded, avail, ["tavily_search"])
     assert "home_HassTurnOn" in after and "home_GetLiveContext" in after
+
+
+def test_overheard_tagging_and_speaker_line():
+    from app import memory
+    said = "(eyes: no face in view, can't tell who's talking; Mon 10:21 AM)\nlet's just merge it."
+    tagged = memory.tag_overheard(said)
+    assert tagged == ("(eyes: no face in view, can't tell who's talking; Mon 10:21 AM)\n"
+                      "(overheard, not said to you) let's just merge it.")
+    assert memory.tag_overheard(tagged) == tagged                    # idempotent
+    line = memory.speaker_line(tagged)
+    assert line.startswith("OVERHEARD (Mon 10:21 AM), not said to Vector") and "merge it" in line
+    assert memory.speaker_line(said).startswith("SOMEONE")           # untagged unchanged
+    assert "{overheard_rule}" not in memory._WRITER_PROMPT.format(
+        overheard_rule=memory.OVERHEARD_RULE, today="x", facts="x", beliefs="", said="x", reply="x")
+
+
+def test_tag_overheard_in_replaces_last_human_by_id():
+    from app import memory
+    msgs = [HumanMessage("(eyes: x; Mon 9:00 AM)\nhello", id="h1"), AIMessage("Hi!", id="a1"),
+            HumanMessage("(eyes: x; Mon 10:21 AM)\nmerge it", id="h2"),
+            SystemMessage("[RIGHT NOW] ...", id="s1"), AIMessage("SILENT", id="a2")]
+    out = memory.tag_overheard_in(msgs)
+    assert out[2].id == "h2" and out[2].content.endswith("(overheard, not said to you) merge it")
+    assert out[0].content.endswith("\nhello") and msgs[2].content.endswith("\nmerge it")

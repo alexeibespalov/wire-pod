@@ -1,0 +1,10 @@
+# The agents are built with ~/wire-pod as the build context (they share ./agent-core).
+# Send only the three source folders, never the data volumes or secrets.
+*
+!vector-agent
+!cortana-agent
+!agent-core
+**/__pycache__
+**/.pytest_cache
+**/.venv
+**/*.egg-info

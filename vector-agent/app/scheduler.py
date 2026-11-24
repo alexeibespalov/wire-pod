@@ -133,21 +133,82 @@ async def _release_hold() -> None:
         log.warning("schedule: release failed: %s", e)
 
 
+# --- staying aimed: on the wake word WireOS turns him toward whoever spoke (before we get
+# any say), which swings him off the TV he's watching. We note his heading at the wake
+# word and again once the turn has started (the firmware's turn is done by then), and
+# the next run of a hold_still schedule turns that much back. Turns he makes on purpose
+# later in the voice turn ("turn left a bit, the TV's there") aren't part of it, and
+# nothing is undone when someone turns him by hand.
+REAIM_MIN_DEG = 15.0
+_wake_heading: tuple[float, int, float] | None = None   # (unwrapped heading, origin, time)
+_drift = 0.0                  # firmware turn-toward-voice not yet undone (deg)
+_drift_origin: int | None = None
+
+
+def _heading() -> tuple[float, int]:
+    s = body.FEED.snapshot()
+    return s["heading_unwrapped"], s["origin_id"]
+
+
+def _note_wake_turn() -> None:
+    global _wake_heading, _drift, _drift_origin
+    if _wake_heading is None:
+        return
+    h0, o0, _t = _wake_heading
+    _wake_heading = None
+    h1, o1 = _heading()
+    if o0 != o1:                 # picked up / re-localised: headings don't compare
+        _drift, _drift_origin = 0.0, None
+        return
+    if _drift_origin not in (None, o1):
+        _drift = 0.0
+    _drift += h1 - h0
+    _drift_origin = o1
+
+
 def on_wake_word() -> None:
     """From the SDK thread: wire-pod is about to talk, our hold is gone anyway."""
-    global _held
+    global _held, _wake_heading
     _held = False
+    if _wake_heading is None and any(s.get("hold_still") for s in active()):
+        try:
+            h, o = _heading()
+            _wake_heading = (h, o, time.time())
+        except Exception:
+            pass
 
 
 def on_turn_start() -> None:
     global _held
     _held = False
+    _note_wake_turn()
+
+
+async def _reaim() -> None:
+    """Undo the firmware's turn toward a voice (see above), outside voice turns."""
+    global _drift
+    if _wake_heading is not None and time.time() - _wake_heading[2] > 6:
+        _note_wake_turn()        # the wake word ended without a turn (silence)
+    if abs(_drift) < REAIM_MIN_DEG or turn.lock().locked():
+        return
+    if _heading()[1] != _drift_origin:
+        _drift = 0.0
+        return
+    back, _drift = -body.wrap180(_drift), 0.0
+    try:
+        r = await body.turn(back)
+        log.info("schedule: turned %.0fdeg back to what I was watching (%s)", back, r.code)
+        activity.record("schedule", f"turned {back:.0f}deg back to what I was watching after "
+                                    f"turning toward a voice")
+    except Exception as e:
+        log.warning("schedule: couldn't turn back (%s)", e)
 
 
 async def _run(s: dict) -> None:
     sid = s["id"]
     if s.get("hold_still"):
         await _ensure_hold()
+        await _reaim()
     ctx = routines.RunCtx(label=s["title"], speak=s.get("speak", True),
                           history=s.get("results", []),
                           min_speech_gap=config.SCHEDULE_SPEECH_GAP_S if s.get("every_s") else 0,
@@ -172,31 +233,41 @@ async def _run(s: dict) -> None:
     s.setdefault("results", []).append({"at": _clock(t0), "text": summary[-240:]})
     s["results"] = s["results"][-20:]
     if s["errors"] >= 5:
-        s["status"] = "failed"
+        why = "my camera stopped giving me pictures" if ctx.blind else "it kept going wrong"
+        _end(s, "failed", why)
         log.warning("schedule #%s stopped after 5 failures in a row", sid)
         if s.get("speak", True):
-            why = "my camera isn't giving me pictures" if ctx.blind else "it kept going wrong"
-            await routines.speak(f"I stopped {s['title']}, because {why}.",
-                                 routines.RunCtx(label=s["title"]))
+            said = await routines.speak(f"I stopped {s['title']}, because {why}.",
+                                        routines.RunCtx(label=s["title"]))
+            log.info("schedule #%s: %s", sid, said)
     _reschedule(s, t0)
     _save()
     if s["status"] != "active" and s.get("hold_still"):
         await _release_hold()
 
 
+def _end(s: dict, status: str, why: str) -> None:
+    """Close a schedule and remember how it ended (for the RIGHT NOW prompt section)."""
+    if s.get("status") != "active":
+        return
+    s["status"], s["ended_at"], s["end_reason"] = status, time.time(), why
+
+
 def _reschedule(s: dict, started: float) -> None:
     now = time.time()
+    if s.get("status") != "active":
+        return
     if s.get("max_runs") and s["runs"] >= s["max_runs"]:
-        s["status"] = "done"
+        _end(s, "done", "it was a one-off" if s["max_runs"] == 1 else f"it ran {s['runs']} times")
     elif s.get("every_s"):
         s["next_at"] = max(started + s["every_s"], now + 1)
         if s.get("until") and s["next_at"] > s["until"]:
-            s["status"] = "done"
+            _end(s, "done", "its time was up")
     elif s.get("daily_at"):
         h, mi = _parse_clock(s["daily_at"])
         s["next_at"] = _next_clock(h, mi)
     else:
-        s["status"] = "done"
+        _end(s, "done", "it was a one-off")
 
 
 async def _tick_forever() -> None:
@@ -209,7 +280,7 @@ async def _tick_forever() -> None:
                 await body.unpin_control()
             for s in active():
                 if s.get("until") and now > s["until"] and s["id"] not in _running:
-                    s["status"] = "done"
+                    _end(s, "done", "its time was up")
                     _save()
                     if s.get("hold_still"):
                         await _release_hold()
@@ -231,22 +302,36 @@ def start() -> None:
     # interval schedules that ended while we were down: close them
     for s in active():
         if s.get("until") and time.time() > s["until"]:
-            s["status"] = "done"
+            _end(s, "done", "its time was up while I was restarting")
     _save()
     _loop.create_task(_tick_forever())
     log.info("schedule: %d active schedule(s) restored", n)
 
 
+RECENT_END_S = 2 * 3600
+
+
 def prompt_section() -> str:
     acts = active()
-    if not acts:
+    now = time.time()
+    ended = [s for s in _schedules if s.get("status") != "active" and s.get("every_s")
+             and now - s.get("ended_at", 0) < RECENT_END_S]
+    if not acts and not ended:
         return ""
-    lines = ["WHAT YOU'RE DOING RIGHT NOW (scheduled actions running in the background; "
-             "cancel_schedule stops one)"]
-    for s in acts:
-        lines.append("- " + _describe(s))
-        for r in s.get("results", [])[-3:]:
-            lines.append(f"    {r['at']}: {r['text'][-200:]}")
+    lines = []
+    if acts:
+        lines.append("WHAT YOU'RE DOING RIGHT NOW (scheduled actions running in the background; "
+                     "cancel_schedule stops one)")
+        for s in acts:
+            lines.append("- " + _describe(s))
+            for r in s.get("results", [])[-3:]:
+                lines.append(f"    {r['at']}: {r['text'][-200:]}")
+    if ended:
+        lines.append("RECENTLY STOPPED (not running any more; say so if asked, don't claim you "
+                     "kept going)")
+        for s in ended[-3:]:
+            lines.append(f"- #{s['id']} {s['title']}: stopped at {_clock(s['ended_at'])} because "
+                         f"{s.get('end_reason', 'it ended')}, after {s.get('runs', 0)} runs")
     return "\n".join(lines) + "\n"
 
 
@@ -334,8 +419,9 @@ async def cancel_schedule(which: Annotated[str, Field(description=(
         else:
             return f"error: nothing scheduled matches {which!r}" + (
                 f"; scheduled: {', '.join('#' + s['id'] + ' ' + s['title'] for s in acts)}" if acts else "")
+    who = faces.front_name()
     for s in hits:
-        s["status"] = "cancelled"
+        _end(s, "cancelled", f"{who or 'someone'} asked me to stop")
         activity.record("schedule", f"cancelled #{s['id']} {s['title']}")
         t = _running.get(s["id"])
         if t and not t.done():
