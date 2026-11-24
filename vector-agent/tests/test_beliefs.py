@@ -112,3 +112,24 @@ def test_every_statement_gets_a_reason_and_evidence_and_no_note_is_lost():
     assert "didn't recognise" in notes[0]["claim"] and "Maya" in notes[0]["claim"]
     assert not any("forget" in s.get("claim", "").lower() for s in out)      # a forget request is never a belief
     assert [s["valid_from"] for s in out] == sorted(s["valid_from"] for s in out)
+
+
+def test_old_overheard_notes_stay_beliefs_but_leave_the_prompt(on):
+    fresh = {**NOTE, "id": "o1", "claim": "Overheard (Mon 23 November): grown-ups talking about work",
+             "valid_from": datetime.now(config.TIMEZONE).isoformat()}
+    old = {**fresh, "id": "o2", "claim": "Overheard (Mon 2 November): something about a holiday",
+           "valid_from": "2026-11-02T10:00:00Z"}
+    on["beliefs"] = [LEO, fresh, old]
+    text = beliefs.prompt_section()
+    assert "grown-ups talking about work" in text and "holiday" not in text
+    assert "1 older overheard note(s): use recall" in text
+    assert old in beliefs.current()                                         # still believed, still searchable
+    assert beliefs._local_search("overheard holiday", 5)[0]["id"] == "o2"   # best match first
+
+
+def test_only_plans_can_expire():
+    assert reconcile._can_expire({"node": "home/household:family", "field": "plan_spain"})
+    assert not reconcile._can_expire({"node": "home/person:leo", "field": "hobby_minecraft"})
+    assert not reconcile._can_expire({"claim": "Overheard (Mon 23 November): grown-ups talking about work."})
+    assert reconcile._can_expire({"claim": "The family is going to the zoo on Friday 20 November 2026."})
+    assert not hasattr(reconcile, "_fade")                                   # overheard notes are never closed

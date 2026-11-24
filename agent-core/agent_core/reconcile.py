@@ -15,9 +15,11 @@ twice: the prompts and the times are frozen in ctx.state, and belief ids are det
   1. extract   notes + new transcript lines -> statements (LLM) -> POST /beliefs
                "Asked to forget" notes -> the belief is closed with that reason
   2. maintain  conflict detection, embeddings, similar-pair suggestions (a job on the NUC)
-  3. fade      "Overheard" notes older than a week are closed (no LLM)
-  4. rule      similar pairs, open conflicts and plans that are over (LLM) -> rulings
-  5. refresh   the snapshot the prompt reads
+  3. rule      similar pairs, open conflicts and plans that are over (LLM) -> rulings
+  4. refresh   the snapshot the prompt reads
+
+"Overheard" notes are never closed here. They stay current beliefs that recall can find;
+after BELIEFS_OVERHEARD_DAYS they are simply no longer listed in the prompt (beliefs.py).
 
 Nothing is ever deleted. A belief that stops being true is superseded or closed, and the
 reason is kept, so `belief_history` can tell the story later.
@@ -116,7 +118,9 @@ questions in {his} long-term memory and rule on each one. Give a short reason ev
 {he} may be asked later why {he} believes something.
 
 A. PAIRS that look alike but are filed separately. For each, one verdict:
-- "duplicate": the same fact filed twice. "keep" = the better-filed side (A or B).
+- "duplicate": the same fact filed twice. "keep" = the better-filed side (A or B). If one \
+side is the general fact and the other a detail of it ("plays Minecraft" / "likes mining for \
+diamonds in Minecraft"), they are NOT duplicates: answer "unrelated" so both are kept.
 - "changed": the same person said both and one is newer/replaces the other. "keep" = the current one.
 - "disagree": different people say different things about the same thing. "keep" = the \
 side whose node+field both belong under; "value" = the other side's value in a few words.
@@ -132,9 +136,10 @@ or plan, the other is someone else speaking about them. "winner" = the person th
 Never decide by which is newer when different people said them.
 {conflicts}
 
-C. CURRENT BELIEFS. List any plan or event whose date is clearly BEFORE today under \
-"expired": "past" = the same fact rewritten as a past fact ("went to Spain in November \
-2026"), or null if it no longer matters at all. Leave everything else alone.
+C. CURRENT BELIEFS. List any PLAN or EVENT (a field starting plan_, or a note about a \
+dated plan) whose date is clearly BEFORE today under "expired": "past" = the same fact \
+rewritten as a past fact ("went to Spain in November 2026"), or null if it no longer matters \
+at all. Leave everything else alone: facts about people, and "Overheard" notes, never expire.
 {beliefs}
 
 Reply as JSON:
@@ -457,21 +462,6 @@ async def _maintain(ctx) -> dict:
     return {"state": "still running"}
 
 
-# ---------------------------------------------------------------------- 3. fade
-async def _fade(changed: list[str]) -> None:
-    cutoff = datetime.now(config.TIMEZONE) - timedelta(days=config.BELIEFS_OVERHEARD_DAYS)
-    for b in beliefs.current():
-        if b.get("node") or not str(b.get("claim", "")).startswith("Overheard"):
-            continue
-        try:
-            since = datetime.fromisoformat(b["valid_from"].replace("Z", "+00:00"))
-        except (KeyError, ValueError):
-            continue
-        if since < cutoff and await _invalidate(
-                b["id"], f"something I only overheard, more than {config.BELIEFS_OVERHEARD_DAYS:.0f} days ago"):
-            changed.append(f"let an old overheard note fade: {b['claim'][:80]}")
-
-
 # ---------------------------------------------------------------------- 4. rule
 def _side(b: dict) -> str:
     return f"{beliefs.sentence(b)} [since {beliefs._when(b.get('valid_from'))}]"
@@ -508,6 +498,14 @@ async def _build_rule(st: dict) -> dict | None:
         beliefs=known)
     return {"prompt": prompt, "pairs": pairs, "conflicts": conflicts, "day": day, "now": _iso(today),
             "brefs": {k: b["id"] for k, b in brefs.items()}}
+
+
+def _can_expire(b: dict) -> bool:
+    """Only a plan or dated event can be over. A fact about a person never expires, and an
+    "Overheard" note is kept (it just leaves the prompt after a while)."""
+    if b.get("node"):
+        return str(b.get("field", "")).startswith("plan_")
+    return not str(b.get("claim", "")).startswith("Overheard")
 
 
 def _restate(b: dict, value: str, reason: str, at: str, records: list, node=None, field=None, links=None) -> dict:
@@ -594,8 +592,8 @@ async def _rule(ctx, changed: list[str]) -> None:
     for e in plan.get("expired") or []:
         bid = rule["brefs"].get(str((e or {}).get("belief", "")).strip("[]")) if isinstance(e, dict) else None
         b = cur.get(bid)
-        if not b:
-            continue
+        if not b or not _can_expire(b):
+            continue                       # only plans expire, whatever the model listed
         reason = str(e.get("reason") or "its date has passed")[:300]
         past = " ".join(str(e.get("past") or "").split())[:200]
         if past and b.get("node"):
@@ -631,9 +629,6 @@ async def reconcile_beliefs(ctx) -> dict:
             waiting.append("notes queued for the sleep batch")
         if ctx.alive():
             ctx.state["maintenance"] = await _maintain(ctx)
-        if ctx.alive():
-            await beliefs.refresh()
-            await _fade(changed)
         if ctx.alive():
             try:
                 await _rule(ctx, changed)

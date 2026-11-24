@@ -104,6 +104,7 @@ def load_shared(ns: dict, *, provider_default: str = "anthropic", a2a_port: int 
         BELIEFS_TOKEN=os.environ.get("BELIEFS_TOKEN", "").strip(),
         BELIEFS_TENANT=e("BELIEFS_TENANT", ""),                  # each agent sets its own default
         BELIEFS_TIMEOUT_S=float(e("BELIEFS_TIMEOUT_S", "6")),    # never hang on the NUC
+        # "Overheard" notes older than this are no longer listed in the prompt (recall still finds them)
         BELIEFS_OVERHEARD_DAYS=float(e("BELIEFS_OVERHEARD_DAYS", "7")),
     )
     # --- A2A: this agent's own door (off unless A2A_TOKEN is set) and the other agent it can ask.

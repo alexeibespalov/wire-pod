@@ -186,6 +186,16 @@ def sentence(b: dict) -> str:
     return str(b.get("claim") or "")
 
 
+def _old_overheard(b: dict) -> bool:
+    if b.get("node") or not str(b.get("claim", "")).startswith("Overheard"):
+        return False
+    try:
+        since = datetime.fromisoformat(str(b.get("valid_from", "")).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return (datetime.now(since.tzinfo) - since).days >= config.BELIEFS_OVERHEARD_DAYS
+
+
 def prompt_section() -> str:
     """The beliefs block of the system prompt (stable: changes only when beliefs change)."""
     beliefs = current()
@@ -207,10 +217,17 @@ def prompt_section() -> str:
                 f"{_when(s.get('valid_from'))})" for s in sides))
         else:
             settled.append(b)
+    # An old "Overheard" note stays a belief (recall finds it) but is no longer listed here,
+    # so half-heard fragments from weeks ago don't crowd the prompt or get brought up.
+    old = [b for b in settled if _old_overheard(b)]
+    settled = [b for b in settled if not _old_overheard(b)]
     settled.sort(key=lambda b: (0 if b.get("node") else 1, b.get("node") or "", b.get("field") or ""))
     lines = [f"- {sentence(b)}" for b in settled[:PROMPT_MAX]]
-    if len(settled) > PROMPT_MAX:
-        lines.append(f"- (and {len(settled) - PROMPT_MAX} more: use recall to find them)")
+    more = max(0, len(settled) - PROMPT_MAX)
+    if more or old:
+        what = " and ".join(x for x in (f"{more} more" if more else "",
+                                        f"{len(old)} older overheard note(s)" if old else "") if x)
+        lines.append(f"- (and {what}: use recall to find them)")
     out = "\n".join(lines) if lines else "- (nothing settled yet)"
     if unsettled:
         out += ("\nUNSETTLED (you were told different things and haven't worked out which is right):\n"
