@@ -43,16 +43,24 @@ server_config points at `192.168.1.39:8443` (IP mode; the router doesn't relay m
 ## YouTube Music
 
 Both agents play what the NAS library lacks from YouTube Music (`agent-core/agent_core/ytmusic.py`).
-Catalogue songs need nothing. John's playlists and liked songs need his sign-in, which is a cookie
-file in each agent's data folder (`agent-data/ytmusic/cookies.txt`, `cortana-data/ytmusic/cookies.txt`,
-mode 600, owned by the container user). It is never in this repository.
+Catalogue songs need nothing. John's playlists and liked songs need his sign-in, a set of cookies
+that each agent keeps encrypted in its data folder (`agent-data/ytmusic/cookies.enc`,
+`cortana-data/ytmusic/cookies.enc`). The key is `YTMUSIC_KEY` in `vector.common.env` and `cortana.env`,
+so a copy of a data folder alone gives nothing away. The cookies are decrypted only in memory.
+Someone with root on the Pi can read both the key and the file; this protects the data at rest, not
+a compromised Pi. Nothing of it is in this repository.
 
 - **Sign in, or renew it:** on the laptop run `./deploy/pi/ytmusic-login.py`. A small Chrome window
-  opens on a profile kept only for this (`~/.local/share/vector-ytmusic`); sign in to Google, and the
-  window closes by itself. The cookies go straight to the Pi over SSH and are picked up without a
-  restart. If the profile is still signed in, the script finishes with no window at all.
+  opens on a profile kept only for this (`~/.local/share/vector-ytmusic`, on the laptop's encrypted
+  disk); sign in to Google, and the window closes by itself. The cookies are piped over SSH into each
+  agent, which encrypts them and answers whether the sign-in works. No restart is needed. If the
+  profile is still signed in, the script finishes with no window at all.
 - **When to run it:** when an assistant says its YouTube Music sign-in has expired.
-- **Sign out:** delete the two `cookies.txt` files on the Pi and the profile folder on the laptop.
+- **How long a sign-in lasts:** each agent checks once a day and adds a line to
+  `<data folder>/ytmusic/session.log` (alive or expired, and days since the sign-in). The agent log
+  has a warning on the day it expires.
+- **Sign out:** delete the two `cookies.enc` files on the Pi and the profile folder on the laptop.
+- **Changing `YTMUSIC_KEY`** makes the stored sign-in unreadable: run the login script again after.
 - **When YouTube changes something and tracks stop playing:** redeploy with `--no-cache` on the two
   agent images, which installs the newest yt-dlp. That is the fix nearly every time.
 - **Ports:** Cortana serves stream addresses on `192.168.1.39:8097` for MPD on the Pi Zero. Only

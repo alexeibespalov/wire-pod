@@ -1,13 +1,15 @@
 """YouTube Music: finding tracks (a fake ytmusicapi client), resolving (a fake yt-dlp),
-and the stream route (a fake YouTube). No network.
+the stream route (a fake YouTube), and keeping the sign-in encrypted. No network.
 
 Run:  cd agent-core && python -m pytest tests -q
 """
 import asyncio
+import json
 import time
 
 import httpx
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 import test_core  # noqa: F401  (registers the fake agent config the core modules read)
@@ -20,17 +22,19 @@ A, B = "aaaaaaaaaaa", "bbbbbbbbbbb"
 @pytest.fixture(autouse=True)
 def clean(tmp_path, monkeypatch):
     monkeypatch.setattr(test_core.cfg, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(test_core.cfg, "YTMUSIC_KEY", Fernet.generate_key().decode())
     ytmusic._resolved.clear()
-    ytmusic._client_cache = None
+    ytmusic._client_cache = ytmusic._jar = None
 
 
-def sign_in(tmp_path):
-    (tmp_path / "ytmusic").mkdir(exist_ok=True)
-    (tmp_path / "ytmusic" / "cookies.txt").write_text(
-        "# Netscape HTTP Cookie File\n\n"
-        "#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PSID\tsid\n"
-        ".youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tsap\n"
-        ".google.com\tTRUE\t/\tTRUE\t0\tNID\tnot-for-youtube\n")
+COOKIES = ("# Netscape HTTP Cookie File\n\n"
+           "#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PSID\tsid-secret\n"
+           ".youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tsap\n"
+           ".google.com\tTRUE\t/\tTRUE\t0\tNID\tnot-for-youtube\n")
+
+
+def sign_in(tmp_path=None):
+    ytmusic.store_cookies(COOKIES)
 
 
 class FakeClient:
@@ -67,9 +71,67 @@ def find(query, mode):
     return asyncio.run(ytmusic.search(query, mode))
 
 
-def test_cookie_header_takes_only_youtube_cookies(tmp_path):
-    sign_in(tmp_path)
-    assert ytmusic.cookie_header(tmp_path / "ytmusic" / "cookies.txt") == "__Secure-3PSID=sid; SAPISID=sap"
+def test_cookie_header_takes_only_youtube_cookies():
+    assert ytmusic.cookie_header(COOKIES) == "__Secure-3PSID=sid-secret; SAPISID=sap"
+
+
+def test_the_sign_in_is_encrypted_on_disk(tmp_path, monkeypatch):
+    folder = tmp_path / "ytmusic"
+    folder.mkdir()
+    (folder / "cookies.txt").write_text(COOKIES)                  # left from before encryption
+    assert not ytmusic.signed_in()                                # a plain file is not a sign-in
+    sign_in()
+    assert ytmusic.signed_in() and ytmusic._cookie_text() == COOKIES
+    assert [f.name for f in folder.iterdir()] == ["cookies.enc"]  # and the plain one is gone
+    assert b"sid-secret" not in (folder / "cookies.enc").read_bytes()
+    assert (folder / "cookies.enc").stat().st_mode & 0o777 == 0o600
+
+    monkeypatch.setattr(test_core.cfg, "YTMUSIC_KEY", Fernet.generate_key().decode())
+    ytmusic._jar = None
+    with pytest.raises(ytmusic.YTMusicError, match="cannot be read"):
+        ytmusic._cookie_text()                                    # the wrong key says so
+    monkeypatch.setattr(test_core.cfg, "YTMUSIC_KEY", "")
+    assert not ytmusic.signed_in()
+    with pytest.raises(ytmusic.YTMusicError, match="YTMUSIC_KEY"):
+        ytmusic.store_cookies(COOKIES)                            # no key: nothing is kept
+
+
+def test_yt_dlp_gets_the_cookies_as_a_stream_and_its_changes_are_kept(monkeypatch):
+    import yt_dlp
+    given = {}
+
+    class FakeYDL:
+        def __init__(self, opts):
+            given.update(opts)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):                                   # as yt-dlp saves: truncate, no rewind
+            stream = given["cookiefile"]
+            stream.read()
+            stream.truncate(0)
+            stream.write(COOKIES + ".youtube.com\tTRUE\t/\tTRUE\t0\tNEW\trotated\n")
+
+        def extract_info(self, url, download):
+            return {"url": "https://yt.test/a", "http_headers": {}}
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    sign_in()
+    assert ytmusic._extract(A) == ("https://yt.test/a", {})
+    assert not isinstance(given["cookiefile"], str)               # never a path on disk
+    assert ytmusic._cookie_text().endswith("NEW\trotated\n") and ytmusic._cookie_text().startswith("# Netscape")
+
+
+def test_the_daily_check_logs_how_long_a_sign_in_lasted(tmp_path, monkeypatch):
+    assert ytmusic.check_session()["state"] == "not signed in"
+    sign_in()
+    monkeypatch.setattr(ytmusic, "_client", lambda: FakeClient())
+    assert ytmusic.check_session()["state"] == "alive"
+    monkeypatch.setattr(ytmusic, "_client", lambda: FakeClient(alive=False))
+    entry = ytmusic.check_session()
+    assert entry["state"] == "expired" and entry["days"] == 0.0 and entry["signed_in_on"]
+    lines = [json.loads(x) for x in (tmp_path / "ytmusic" / "session.log").read_text().splitlines()]
+    assert [x["state"] for x in lines] == ["not signed in", "alive", "expired"]
 
 
 def test_song_and_album(monkeypatch):

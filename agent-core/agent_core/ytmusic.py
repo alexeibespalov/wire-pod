@@ -11,18 +11,24 @@ and this module resolves the id and relays the audio when the player fetches it.
 Cortana's satellite and Vector's ffmpeg both just see an ordinary http audio file.
 
 Signing in is optional. Without it the whole catalogue still plays (128 kbps); with it
-the owner's playlists and liked songs work too, at Premium quality. The session is a
-cookie file, <DATA_DIR>/ytmusic/cookies.txt, written by deploy/pi/ytmusic-login.py and
-never kept in the repository. When Google ends that session the tools say so.
+the owner's playlists and liked songs work too, at Premium quality. The session is a set
+of cookies handed over by deploy/pi/ytmusic-login.py and kept encrypted in
+<DATA_DIR>/ytmusic/cookies.enc; the key is YTMUSIC_KEY, which lives with the agent's other
+secrets in its env file, not in the data folder. They are only ever decrypted in memory:
+yt-dlp reads them from a text stream, not a file. When Google ends that session the
+tools say so, and a daily check (`watch`) records how long each sign-in lasted in
+<DATA_DIR>/ytmusic/session.log.
 """
 import asyncio
 import hashlib
 import hmac
+import io
+import json
 import logging
 import random
 import re
 import secrets
-import shutil
+import sys
 import threading
 import time
 import urllib.parse
@@ -62,12 +68,19 @@ def _dir() -> Path:
     return Path(config.DATA_DIR) / "ytmusic"
 
 
-def _cookies() -> Path:
-    return _dir() / "cookies.txt"
+def _store() -> Path:
+    return _dir() / "cookies.enc"
+
+
+def _fernet():
+    from cryptography.fernet import Fernet
+    if not config.YTMUSIC_KEY:
+        raise YTMusicError("YTMUSIC_KEY is not set, so the YouTube Music sign-in cannot be kept")
+    return Fernet(config.YTMUSIC_KEY.encode())
 
 
 def signed_in() -> bool:
-    return _cookies().is_file()
+    return bool(config.YTMUSIC_KEY) and _store().is_file()
 
 
 def available() -> bool:
@@ -82,10 +95,44 @@ def available() -> bool:
     return True
 
 
-def cookie_header(path: Path) -> str:
-    """The youtube.com cookies of a Netscape cookie file, as one Cookie header."""
+_jar: tuple[float, str] | None = None        # (the stored file's mtime, the cookies as yt-dlp last left them)
+
+
+def store_cookies(text: str) -> None:
+    """Keep a new sign-in (Netscape cookie text), encrypted. Replaces the previous one."""
+    global _jar
+    if "\t" not in text:
+        raise YTMusicError("that is not a cookie file")
+    token = _fernet().encrypt(text.encode())
+    _dir().mkdir(parents=True, exist_ok=True)
+    tmp = _store().with_suffix(".new")
+    tmp.write_bytes(token)
+    tmp.chmod(0o600)
+    tmp.replace(_store())
+    _jar = None
+    for old in ("cookies.txt", "cookies.work.txt"):      # from before they were encrypted
+        (_dir() / old).unlink(missing_ok=True)
+
+
+def _cookie_text() -> str:
+    """The cookies, decrypted in memory. yt-dlp's later changes to them are kept for as
+    long as the process runs; a new sign-in replaces them."""
+    global _jar
+    from cryptography.fernet import InvalidToken
+    stamp = _store().stat().st_mtime
+    if _jar is None or _jar[0] != stamp:
+        try:
+            _jar = (stamp, _fernet().decrypt(_store().read_bytes()).decode())
+        except InvalidToken:
+            raise YTMusicError("the stored YouTube Music sign-in cannot be read with this YTMUSIC_KEY; "
+                               "run deploy/pi/ytmusic-login.py again") from None
+    return _jar[1]
+
+
+def cookie_header(text: str) -> str:
+    """The youtube.com cookies of Netscape cookie text, as one Cookie header."""
     out = []
-    for line in path.read_text().splitlines():
+    for line in text.splitlines():
         if line.startswith("#HttpOnly_"):
             line = line[len("#HttpOnly_"):]
         elif not line or line.startswith("#"):
@@ -102,11 +149,11 @@ _client_cache: tuple[float, object] | None = None
 
 
 def _client():
-    """A ytmusicapi client: signed in when the cookie file is there, anonymous otherwise.
-    Rebuilt when the cookie file changes (a fresh sign-in needs no restart)."""
+    """A ytmusicapi client: signed in when there is a stored sign-in, anonymous otherwise.
+    Rebuilt when the sign-in is replaced (a fresh one needs no restart)."""
     global _client_cache
     from ytmusicapi import YTMusic
-    stamp = _cookies().stat().st_mtime if signed_in() else 0.0
+    stamp = _store().stat().st_mtime if signed_in() else 0.0
     with _client_lock:
         if _client_cache and _client_cache[0] == stamp:
             return _client_cache[1]
@@ -114,7 +161,7 @@ def _client():
             # ytmusicapi works the per-request authorization out of the cookies itself; the
             # header only has to be present for it to treat this as a browser session
             client = YTMusic(auth={
-                "cookie": cookie_header(_cookies()), "x-goog-authuser": "0",
+                "cookie": cookie_header(_cookie_text()), "x-goog-authuser": "0",
                 "authorization": "SAPISIDHASH x", "origin": "https://music.youtube.com",
                 "content-type": "application/json", "accept": "*/*", "user-agent": _UA})
         else:
@@ -206,11 +253,22 @@ def _find(query: str, mode: str) -> tuple[list[dict], str]:
     return [best], f"{best['title']} by {best['artist']}"
 
 
-def _session_alive() -> bool:
+def session_state() -> bool | None:
+    """True = the sign-in works, False = Google no longer accepts it, None = could not tell
+    (not signed in, or YouTube could not be reached)."""
+    import requests
+    if not signed_in():
+        return None
     try:
         return bool(_client().get_account_info().get("accountName"))
+    except (requests.ConnectionError, requests.Timeout):
+        return None
     except Exception:
         return False
+
+
+def _session_alive() -> bool:
+    return session_state() is True
 
 
 async def search(query: str, mode: str) -> tuple[list[dict], str]:
@@ -234,26 +292,18 @@ _resolved: dict[str, tuple[float, str, dict]] = {}      # id -> (good until, url
 _resolve_lock = asyncio.Lock()
 
 
-def _working_cookies() -> str | None:
-    """yt-dlp rewrites the cookie file it is given. It gets its own copy, refreshed when a
-    new sign-in arrives, so the file the login script wrote is never touched."""
-    if not signed_in():
-        return None
-    work = _dir() / "cookies.work.txt"
-    if not work.exists() or work.stat().st_mtime < _cookies().stat().st_mtime:
-        shutil.copyfile(_cookies(), work)
-        work.chmod(0o600)
-    return str(work)
-
-
 def _extract(video_id: str) -> tuple[str, dict]:
+    global _jar
     from yt_dlp import YoutubeDL
     from yt_dlp.utils import DownloadError
     opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True,
             "format": "bestaudio[ext=m4a]/bestaudio", "source_address": "0.0.0.0",   # IPv4: the URL is tied to it
             "cachedir": str(_dir() / "cache"), "socket_timeout": 15}
-    cookies = _working_cookies()
-    if cookies:
+    cookies = None
+    if signed_in():
+        # a text stream, not a file: yt-dlp reads the cookies from it and writes them back
+        # to it when it closes, so they never touch the disk unencrypted
+        cookies = io.StringIO(_cookie_text())
         opts["cookiefile"] = cookies
     try:
         with YoutubeDL(opts) as ydl:
@@ -263,6 +313,10 @@ def _extract(video_id: str) -> tuple[str, dict]:
         if cookies and re.search(r"no longer valid|Sign in to confirm|account has been", text, re.I):
             raise SignInExpired() from e
         raise YTMusicError(f"YouTube would not give me that track ({text[:160]})") from e
+    if cookies and _jar:
+        left = cookies.getvalue().lstrip("\x00")           # it truncates the stream without rewinding
+        if "\t" in left:
+            _jar = (_jar[0], left)
     if not info or not info.get("url"):
         raise YTMusicError("YouTube returned no audio for that track")
     return info["url"], dict(info.get("http_headers") or {})
@@ -273,7 +327,7 @@ async def resolve(video_id: str, fresh: bool = False) -> tuple[str, dict]:
     before YouTube's own expiry."""
     if not VIDEO_ID.match(video_id):
         raise YTMusicError("not a YouTube track id")
-    async with _resolve_lock:                  # one yt-dlp at a time: they share the cookie copy
+    async with _resolve_lock:                  # one yt-dlp at a time: they share the cookies
         hit = _resolved.get(video_id)
         if hit and not fresh and hit[0] > time.time():
             return hit[1], hit[2]
@@ -399,3 +453,67 @@ def stream_app() -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.include_router(router)
     return app
+
+
+# ------------------------------------------------------------------- watching the sign-in
+CHECK_EVERY_S = 24 * 3600
+
+
+def check_session() -> dict:
+    """Look once, and add a line to session.log: when, whether the sign-in works, and how
+    many days it has lasted. Reading that file later shows how long a sign-in really lives."""
+    state = session_state()
+    since = _store().stat().st_mtime if signed_in() else None
+    entry = {"at": time.strftime("%Y-%m-%d %H:%M:%S"),
+             "state": {True: "alive", False: "expired", None: "unknown" if since else "not signed in"}[state],
+             "signed_in_on": time.strftime("%Y-%m-%d", time.localtime(since)) if since else None,
+             "days": round((time.time() - since) / 86400, 1) if since else None}
+    _dir().mkdir(parents=True, exist_ok=True)
+    with (_dir() / "session.log").open("a") as f:
+        f.write(json.dumps(entry) + "\n")
+    if state is False:
+        log.warning("ytmusic: the sign-in from %s has expired after %s days: run deploy/pi/ytmusic-login.py",
+                    entry["signed_in_on"], entry["days"])
+    else:
+        log.info("ytmusic: sign-in %s (signed in on %s, %s days ago)", entry["state"],
+                 entry["signed_in_on"], entry["days"])
+    return entry
+
+
+async def watch() -> None:
+    """Check the sign-in a minute after start and then once a day."""
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await asyncio.to_thread(check_session)
+        except Exception as e:
+            log.warning("ytmusic: sign-in check failed: %s", e)
+        await asyncio.sleep(CHECK_EVERY_S)
+
+
+_watching: asyncio.Task | None = None      # held here so the loop keeps it alive
+
+
+def start_watch() -> asyncio.Task | None:
+    global _watching
+    if available():
+        _watching = asyncio.get_running_loop().create_task(watch())
+    return _watching
+
+
+def cli() -> None:
+    """For deploy/pi/ytmusic-login.py, run inside the agent's container after its config is
+    loaded:  store = keep the cookie text on stdin as the new sign-in, then check it;
+    check = say whether the stored sign-in works."""
+    what = sys.argv[1] if len(sys.argv) > 1 else "check"
+    try:
+        if what == "store":
+            store_cookies(sys.stdin.read())
+        entry = check_session()
+    except YTMusicError as e:
+        sys.exit(f"{config.ASSISTANT_NAME}: {e}")
+    print(f"{config.ASSISTANT_NAME}: sign-in {entry['state']}"
+          + (f" (signed in on {entry['signed_in_on']})" if entry["signed_in_on"] else ""))
+    if what == "store" and entry["state"] == "expired":
+        sys.exit(1)
+

@@ -259,6 +259,7 @@ async def lifespan(app: FastAPI):
     library.start()  # index the NAS music library (cached)
     scheduler.start()  # scheduled actions / routines in the background
     practice.start()   # idle practice loop (off unless BODY_IDLE_PRACTICE=1)
+    ytmusic.start_watch()  # daily: is the YouTube Music sign-in still good?
     mcp = await load_mcp_tools()
     async with AsyncSqliteSaver.from_conn_string(str(config.DATA_DIR / "checkpoints.sqlite")) as saver:
         STATE["agent"] = build_agent(saver, mcp)

@@ -130,6 +130,9 @@ def load_shared(ns: dict, *, provider_default: str = "anthropic", a2a_port: int 
     stream_port = int(e("YTMUSIC_STREAM_PORT", "0"))
     ns.update(
         YTMUSIC_ENABLED=e("YTMUSIC_ENABLED", "1") == "1",
+        # Encrypts the stored sign-in (cookies.enc in the data folder). A Fernet key; without
+        # one no sign-in is kept and only the public catalogue plays.
+        YTMUSIC_KEY=os.environ.get("YTMUSIC_KEY", "").strip(),
         YTMUSIC_STREAM_HOST=e("YTMUSIC_STREAM_HOST", "0.0.0.0"), YTMUSIC_STREAM_PORT=stream_port,
         YTMUSIC_STREAM_BASE=e("YTMUSIC_STREAM_BASE",
                               f"http://127.0.0.1:{stream_port or ns['LISTEN_PORT']}").rstrip("/"),

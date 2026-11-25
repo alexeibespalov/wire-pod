@@ -13,4 +13,5 @@ webrtcvad-wheels>=2.0.14
 pytest
 # YouTube Music (agent_core/ytmusic.py). yt-dlp needs updating when YouTube changes: rebuild to pick up a newer one
 ytmusicapi>=1.12
+cryptography>=42          # the stored sign-in is encrypted (YTMUSIC_KEY)
 yt-dlp[default]>=2026.11.23

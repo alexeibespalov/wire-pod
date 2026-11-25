@@ -142,6 +142,8 @@ async def lifespan(app: FastAPI):
             log.info("SATELLITE_URI empty: text only")
         tasks.append(reminders.start(announce_item))
         tasks.append(asyncio.create_task(_nightly_loop()))
+        if (watch := ytmusic.start_watch()) is not None:    # daily: is the YouTube Music sign-in still good?
+            tasks.append(watch)
         log.info("%s ready: model=%s effort=%s satellite=%s", config.ASSISTANT_NAME, config.LLM_MODEL,
                  config.LLM_EFFORT, config.SATELLITE_URI or "-")
         activity.record("voice", "agent started")

@@ -11,9 +11,11 @@
 Run it on the laptop. It opens a dedicated Chrome profile (kept in
 ~/.local/share/vector-ytmusic, used for nothing else, so normal browsing never rotates
 these cookies), waits until YouTube Music is signed in, reads the session cookies and
-writes them straight to the Pi 5 for both agents. Nothing is written to this repository
-or to the laptop outside that profile. Run it again whenever the assistants say their
-YouTube sign-in has expired; if the profile is still signed in it finishes by itself.
+pipes them over SSH into each agent's container, which encrypts them with its own
+YTMUSIC_KEY before anything is written (cookies.enc in its data folder). Nothing is
+written to this repository, to the Pi's disk in the clear, or to the laptop outside that
+profile. Run it again whenever the assistants say their YouTube sign-in has expired; if
+the profile is still signed in it finishes by itself.
 
 Google refuses sign-ins in a browser it can tell is being driven ("This browser or app
 may not be secure"), and a debugging port alone is enough to trip that. So there are two
@@ -28,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -43,9 +46,9 @@ SIGN_IN = "https://accounts.google.com/ServiceLogin?service=youtube&continue=" +
 PROFILE = Path(os.environ.get("YTMUSIC_PROFILE", Path.home() / ".local/share/vector-ytmusic/chrome-profile"))
 PI_HOST = os.environ.get("PI_HOST", "john@192.168.1.39")
 PI_KEY = os.environ.get("PI_KEY", str(Path.home() / ".ssh/rpi_key"))
-PI_DIR = os.environ.get("PI_DIR", "wire-pod")
-# (data folder on the Pi, uid the agent's container runs as)
-TARGETS = (("agent-data", 10001), ("cortana-data", 10002))
+CONTAINERS = ("vector-agent", "cortana-agent")
+# run inside each container: keep the cookie text on stdin, encrypted, and check it works
+STORE = "from app import config; from agent_core import ytmusic; ytmusic.cli()"
 NEEDED = {"__Secure-3PAPISID", "__Secure-3PSID", "LOGIN_INFO"}
 KEEP_DOMAINS = ("youtube.com", "google.com")
 # Same cookie encryption in both launches, so the hidden one can read what the visible one
@@ -168,15 +171,18 @@ def netscape(cookies: list[dict]) -> tuple[str, int]:
     return "\n".join(lines) + "\n", count
 
 
-def upload(text: str) -> None:
-    """Pipe the cookie file to the Pi; one private copy per agent, owned by its container user."""
-    steps = ["set -e", "umask 077", "t=$(mktemp -p /dev/shm)", 'trap \'rm -f "$t"\' EXIT', 'cat > "$t"']
-    for folder, uid in TARGETS:
-        d = f"$HOME/{PI_DIR}/{folder}/ytmusic"
-        steps += [f'sudo -n install -d -m 700 -o {uid} "{d}"',
-                  f'sudo -n install -m 600 -o {uid} "$t" "{d}/cookies.txt"']
-    subprocess.run(["ssh", "-i", PI_KEY, "-o", "IdentitiesOnly=yes", PI_HOST, "; ".join(steps)],
-                   input=text.encode(), check=True)
+def upload(text: str) -> bool:
+    """Hand the cookies to each agent on the Pi. They travel over SSH into the container's
+    stdin; the agent encrypts them and reports whether the sign-in works."""
+    ok = True
+    for name in CONTAINERS:
+        remote = f"sudo -n docker exec -i {name} python -c {shlex.quote(STORE)} store"
+        done = subprocess.run(["ssh", "-i", PI_KEY, "-o", "IdentitiesOnly=yes", PI_HOST, remote],
+                              input=text.encode(), capture_output=True)
+        out = (done.stdout.decode() + done.stderr.decode()).strip().splitlines()
+        say(out[-1] if out else f"{name}: no answer")
+        ok = ok and done.returncode == 0
+    return ok
 
 
 def main() -> None:
@@ -195,8 +201,9 @@ def main() -> None:
     if args.no_upload:
         say(f"Signed in; {count} cookies read, nothing uploaded.")
         return
-    upload(text)
-    say(f"Signed in; {count} cookies sent to {PI_HOST} for " + " and ".join(f for f, _ in TARGETS) + ".")
+    say(f"Signed in; handing {count} cookies to the agents on {PI_HOST}.")
+    if not upload(text):
+        sys.exit("At least one agent did not take the sign-in (see above).")
 
 
 if __name__ == "__main__":
