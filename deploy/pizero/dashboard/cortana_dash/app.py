@@ -160,7 +160,7 @@ class Dashboard(App):
             self._busy.discard(i)
 
 
-def main() -> None:
+def setup_logging() -> None:
     import logging.handlers
     # never print: anything on stdout/stderr would draw over the screen
     try:
@@ -169,6 +169,14 @@ def main() -> None:
     except OSError:
         handler = logging.NullHandler()
     logging.basicConfig(level=logging.INFO, handlers=[handler])
+    log.setLevel(logging.INFO)
+    # httpx logs every request at INFO: ~2,400 lines an hour of polling onto the Zero's SD card
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def main() -> None:
+    setup_logging()
 
     url, token = os.environ.get("HA_URL", ""), os.environ.get("HA_TOKEN", "")
     ha = sources.HA(url, token) if url and token else None

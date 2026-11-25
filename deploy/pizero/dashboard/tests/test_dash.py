@@ -268,3 +268,12 @@ def test_app_draws_and_taps_call_home_assistant(tmp_path):
     assert app.state.lights["reception"]["on"] is False          # shown at once
     assert any(c[1] == "set_temperature" and c[2]["temperature"] == 25.0 for c in ha.calls)
     assert len(ha.calls) == 2 and app.state.boost_until is not None
+
+
+def test_polling_is_not_logged():
+    import logging
+    from cortana_dash.app import setup_logging
+    setup_logging()
+    assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)
+    assert not logging.getLogger("httpcore").isEnabledFor(logging.INFO)
+    assert logging.getLogger("cortana-dash").isEnabledFor(logging.INFO)
