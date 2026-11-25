@@ -144,9 +144,12 @@ class Dashboard(App):
             if i in (0, 2):
                 key = "reception" if i == 0 else "living"
                 light = s.lights.get(key)
-                if light is not None:                       # show it at once; the next poll confirms
-                    s.lights[key] = {**light, "on": not light["on"]}
-                await self.ha.call("light", "toggle", {"entity_id": ENTITIES[key]})
+                if light is not None and light["on"]:
+                    s.lights[key] = {**light, "on": False}  # show it at once; the next poll confirms
+                    await self.ha.call("light", "turn_off", {"entity_id": ENTITIES[key]})
+                else:                                       # on means full brightness, not the last one
+                    s.lights[key] = {"on": True, "pct": 100}
+                    await self.ha.call("light", "turn_on", {"entity_id": ENTITIES[key], "brightness_pct": 100})
             elif i == 3 and self.boost is not None:
                 await self.boost.toggle()
                 s.boost_until = self.boost.until

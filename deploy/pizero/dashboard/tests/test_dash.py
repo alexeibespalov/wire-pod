@@ -258,16 +258,19 @@ def test_app_draws_and_taps_call_home_assistant(tmp_path):
         app.state = full_state()
         async with app.run_test(size=(40, 15)) as pilot:
             await pilot.pause()
-            await pilot.click(offset=(5, 8))           # Reception lights
+            await pilot.click(offset=(5, 8))           # Reception lights (on at 30%)
+            await pilot.click(offset=(5, 11))          # Living Room lights (off)
             await pilot.click(offset=(25, 8))          # the temperature only shows
             await pilot.click(offset=(25, 11))         # boost
             await pilot.pause()
             return app
     app = asyncio.run(go())
-    assert ("light", "toggle", {"entity_id": ENTITIES["reception"]}) in ha.calls
+    assert ("light", "turn_off", {"entity_id": ENTITIES["reception"]}) in ha.calls
     assert app.state.lights["reception"]["on"] is False          # shown at once
+    assert ("light", "turn_on", {"entity_id": ENTITIES["living"], "brightness_pct": 100}) in ha.calls
+    assert app.state.lights["living"] == {"on": True, "pct": 100}  # full, not the last brightness
     assert any(c[1] == "set_temperature" and c[2]["temperature"] == 25.0 for c in ha.calls)
-    assert len(ha.calls) == 2 and app.state.boost_until is not None
+    assert len(ha.calls) == 3 and app.state.boost_until is not None
 
 
 def test_polling_is_not_logged():
