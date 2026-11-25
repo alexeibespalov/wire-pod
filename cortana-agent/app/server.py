@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from . import activity, beliefs, compaction, config, music, reminders, sleepbatch, turn
+from agent_core import ytmusic
 from .agent import build_agent
 from .conversation import STATE, TeeSink, TextSink, is_never_mind, respond
 from .mcp_tools import load_mcp_tools
@@ -152,6 +153,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(ytmusic.router)     # /yt/stream/<id>: YouTube Music for a player on this machine
 
 
 @app.get("/health")
@@ -214,6 +216,12 @@ def main():
     else:
         log.info("A2A disabled (no A2A_TOKEN)")
 
+    if ytmusic.available() and config.YTMUSIC_STREAM_PORT:
+        # the same route for players on other devices; nothing else is reachable there
+        servers.append(uvicorn.Server(uvicorn.Config(ytmusic.stream_app(), host=config.YTMUSIC_STREAM_HOST,
+                                                     port=config.YTMUSIC_STREAM_PORT, log_level="warning")))
+        log.info("YouTube Music streams on %s:%s (%s)", config.YTMUSIC_STREAM_HOST,
+                 config.YTMUSIC_STREAM_PORT, "signed in" if ytmusic.signed_in() else "not signed in")
     async def serve():
         await asyncio.gather(*(s.serve() for s in servers))
     asyncio.run(serve())

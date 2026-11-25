@@ -13,3 +13,6 @@ wirepod_vector_sdk>=0.8
 defusedxml>=0.7
 mido>=1.3
 a2a-sdk>=1.0
+# YouTube Music (agent_core/ytmusic.py). yt-dlp needs updating when YouTube changes: rebuild to pick up a newer one
+ytmusicapi>=1.12
+yt-dlp[default]>=2026.11.23

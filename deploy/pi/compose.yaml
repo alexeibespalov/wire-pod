@@ -128,6 +128,11 @@ services:
       AGENT_TZ: Europe/London
       WHISPER_URL: http://127.0.0.1:10330
       PIPER_URI: tcp://127.0.0.1:10200
+      # YouTube Music: MPD on the satellite fetches tracks from here (only signed stream
+      # addresses are served on this port). Vector's player is in his own container and
+      # uses his main door, so he needs no such port.
+      YTMUSIC_STREAM_PORT: "8097"
+      YTMUSIC_STREAM_BASE: http://192.168.1.39:8097
     volumes:
       - ./cortana-data:/data
     healthcheck:

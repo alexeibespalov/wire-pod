@@ -5,6 +5,7 @@ import time
 
 import pytest
 
+from agent_core import ytmusic
 from app import config, music
 
 LISTING = [
@@ -23,6 +24,7 @@ class FakeMPD:
 
     def __init__(self):
         self.state, self.queue, self.volume, self.log = "stop", [], 100, []
+        self.tags = {}                                   # song id -> {tag: value}, for streams
 
     def answer(self, cmd: str) -> list[str]:
         self.log.append(cmd)
@@ -35,9 +37,18 @@ class FakeMPD:
         if name == "listall":
             return [f"{k}: {v}" for k, v in LISTING]
         if name == "currentsong":
-            return [f"file: {self.queue[0]}"] if self.queue else []
+            if not self.queue:
+                return []
+            return [f"file: {self.queue[0]}", *(f"{k}: {v}" for k, v in self.tags.get(1, {}).items())]
+        if name == "addid":
+            self.queue.append(arg.strip('"'))
+            return [f"Id: {len(self.queue)}"]
+        if name == "addtagid":
+            song_id, tag, value = arg.split(" ", 2)
+            self.tags.setdefault(int(song_id), {})[tag] = value.strip('"')
+            return []
         if name == "clear":
-            self.queue = []
+            self.queue, self.tags = [], {}
         elif name == "add":
             self.queue.append(arg.strip('"').replace('\\"', '"'))
         elif name == "play":
@@ -220,5 +231,81 @@ def test_bare_stop_means_the_music(mpd):
         music.PLAYER.last_voice = time.monotonic() - 60
         await music.PLAYER.step()
         assert mpd.state == "pause"                         # stays paused
+        server.close()
+    asyncio.run(go())
+
+
+# ------------------------------------------------------------------ YouTube Music
+YT = [{"id": "aaaaaaaaaaa", "title": "Hey Ya!", "artist": "Outkast", "album": "The Love Below", "duration": 235},
+      {"id": "bbbbbbbbbbb", "title": "Roses", "artist": "Outkast", "album": "", "duration": 369}]
+
+
+class FakeYouTube:
+    """A YouTube Music that only has Outkast, and records what it was asked."""
+
+    def __init__(self):
+        self.asked, self.error = [], "nothing on YouTube Music matches that"
+
+    async def search(self, query, mode):
+        self.asked.append((query, mode))
+        return (YT, "songs by Outkast") if "outkast" in query or mode == "liked" else ([], self.error)
+
+
+@pytest.fixture
+def youtube(monkeypatch):
+    fake = FakeYouTube()
+    monkeypatch.setattr(ytmusic, "available", lambda: True)
+    monkeypatch.setattr(ytmusic, "search", fake.search)
+    monkeypatch.setattr(ytmusic, "warm", lambda video_id: None)
+    return fake
+
+
+def test_what_the_library_lacks_comes_from_youtube(mpd, youtube):
+    async def go():
+        server = await mpd.start()
+        out = await music.play_music.ainvoke({"query": "outkast", "mode": "artist"})
+        assert out.startswith("queued songs by Outkast (2 tracks queued), from YouTube Music")
+        assert mpd.queue == [ytmusic.stream_url("aaaaaaaaaaa"), ytmusic.stream_url("bbbbbbbbbbb")]
+        assert mpd.tags == {1: {"Title": "Hey Ya!", "Artist": "Outkast", "Album": "The Love Below"},
+                            2: {"Title": "Roses", "Artist": "Outkast"}}
+        assert music.PLAYER.want and mpd.state == "stop"         # waits for her, like any music
+        assert (await music.now_playing.ainvoke({})).startswith("stopped: Hey Ya! by Outkast")
+        server.close()
+    asyncio.run(go())
+
+
+def test_the_library_is_tried_first(mpd, youtube):
+    async def go():
+        server = await mpd.start()
+        out = await music.play_music.ainvoke({"query": "radiohead", "mode": "artist"})
+        assert "from the family library" in out and youtube.asked == []
+        out = await music.play_music.ainvoke({"query": "outkast", "mode": "artist", "source": "nas"})
+        assert out.startswith("error: no artist called") and youtube.asked == []
+        out = await music.play_music.ainvoke({"query": "radiohead outkast", "mode": "artist", "source": "youtube"})
+        assert "from YouTube Music" in out and youtube.asked == [("radiohead outkast", "artist")]
+        server.close()
+    asyncio.run(go())
+
+
+def test_liked_songs_and_failures(mpd, youtube):
+    async def go():
+        server = await mpd.start()
+        assert "from YouTube Music" in await music.play_music.ainvoke({"mode": "liked"})
+        youtube.error = ytmusic.EXPIRED
+        out = await music.play_music.ainvoke({"query": "gym", "mode": "playlist"})
+        assert out == f"error: {ytmusic.EXPIRED}"
+        out = await music.play_music.ainvoke({"query": "beyonce", "mode": "artist"})
+        assert "in the music library" in out and "on YouTube Music" in out   # both said no
+        server.close()
+    asyncio.run(go())
+
+
+def test_without_youtube_music_it_is_the_library_only(mpd):
+    async def go():
+        server = await mpd.start()
+        out = await music.play_music.ainvoke({"query": "beyonce", "mode": "artist"})
+        assert out.startswith("error: no artist called")
+        out = await music.play_music.ainvoke({"mode": "liked"})
+        assert out.startswith("error: playlists and liked songs come from YouTube Music")
         server.close()
     asyncio.run(go())

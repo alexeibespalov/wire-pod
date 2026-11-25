@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-co
 
 # Built from the folder that holds both agents and agent-core (see compose.yaml: context "."),
 # because the shared brain lives in ../agent-core.
+# yt-dlp runs YouTube's player script in Deno to work out audio URLs (agent_core/ytmusic.py)
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 COPY vector-agent/requirements.txt .
 RUN pip install -r requirements.txt
 COPY agent-core /srv/agent-core

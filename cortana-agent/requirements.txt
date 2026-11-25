@@ -11,3 +11,6 @@ httpx>=0.27
 wyoming>=1.5
 webrtcvad-wheels>=2.0.14
 pytest
+# YouTube Music (agent_core/ytmusic.py). yt-dlp needs updating when YouTube changes: rebuild to pick up a newer one
+ytmusicapi>=1.12
+yt-dlp[default]>=2026.11.23

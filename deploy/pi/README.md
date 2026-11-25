@@ -40,6 +40,26 @@ server_config points at `192.168.1.39:8443` (IP mode; the router doesn't relay m
 * `~/wire-pod/data/`: wire-pod state: settings, Vector's registration/session cert,
   speech model, SDK cert (`data/anki_vector/`)
 
+## YouTube Music
+
+Both agents play what the NAS library lacks from YouTube Music (`agent-core/agent_core/ytmusic.py`).
+Catalogue songs need nothing. John's playlists and liked songs need his sign-in, which is a cookie
+file in each agent's data folder (`agent-data/ytmusic/cookies.txt`, `cortana-data/ytmusic/cookies.txt`,
+mode 600, owned by the container user). It is never in this repository.
+
+- **Sign in, or renew it:** on the laptop run `./deploy/pi/ytmusic-login.py`. A small Chrome window
+  opens on a profile kept only for this (`~/.local/share/vector-ytmusic`); sign in to Google, and the
+  window closes by itself. The cookies go straight to the Pi over SSH and are picked up without a
+  restart. If the profile is still signed in, the script finishes with no window at all.
+- **When to run it:** when an assistant says its YouTube Music sign-in has expired.
+- **Sign out:** delete the two `cookies.txt` files on the Pi and the profile folder on the laptop.
+- **When YouTube changes something and tracks stop playing:** redeploy with `--no-cache` on the two
+  agent images, which installs the newest yt-dlp. That is the fix nearly every time.
+- **Ports:** Cortana serves stream addresses on `192.168.1.39:8097` for MPD on the Pi Zero. Only
+  addresses signed by her are answered there. Vector's player uses his own `127.0.0.1:8091`.
+- Using an account this way is outside YouTube's terms. yt-dlp's own guidance is that heavy use can
+  get an account rate-limited or, rarely, suspended; one household playing songs is light use.
+
 ## Gotchas
 
 * After wire-pod's SSH bot setup, Vector's login token is wiped: re-activate over BLE at

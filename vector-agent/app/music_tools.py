@@ -5,7 +5,8 @@ from typing import Annotated, Literal
 from langchain_core.tools import tool
 from pydantic import Field
 
-from . import library, midi, podcasts
+from . import config, library, midi, podcasts
+from agent_core import ytmusic
 from .audio import PLAYER, Item
 
 _AFTER = "It starts right after you finish speaking, so keep your reply to one short sentence."
@@ -13,21 +14,44 @@ _Dance = Annotated[bool, Field(description="True = also start your dance-to-the-
 _Volume = Annotated[int, Field(description="Playback volume 10-100 (default 70)")]
 
 
+_NAS_MODES = ("song", "artist", "album", "shuffle")
+
+
 @tool
 async def play_music(
-        query: Annotated[str, Field(description="Song, artist or album to find in the music library; "
-                                                "empty with mode=shuffle for anything")] = "",
-        mode: Literal["song", "artist", "album", "shuffle"] = "song",
+        query: Annotated[str, Field(description="Song, artist, album or playlist to find; "
+                                                "empty with mode=shuffle or mode=liked")] = "",
+        mode: Literal["song", "artist", "album", "shuffle", "playlist", "liked"] = "song",
+        source: Annotated[Literal["auto", "nas", "youtube"], Field(
+            description="auto = the household library first, YouTube Music if it isn't there; "
+                        "nas or youtube = only that one")] = "auto",
         dance: _Dance = False,
         volume: _Volume = 70) -> str:
-    """Play music from the household music library (the NAS). Load the 'music' skill first."""
-    tracks, desc = library.search(query, mode)
-    if not tracks:
-        return f"error: {desc}"
-    items = [Item(title=f"{t['title']} by {t['artist']}", source=t["path"]) for t in tracks]
+    """Play music: from the household music library (the NAS), or from YouTube Music (any
+    song, and John's playlists and liked songs). Load the 'music' skill first."""
+    also = ", and you will dance" if dance else ""
+    nas_desc = ""
+    if source != "youtube" and mode in _NAS_MODES:
+        tracks, nas_desc = library.search(query, mode)
+        if tracks:
+            items = [Item(title=f"{t['title']} by {t['artist']}", source=t["path"]) for t in tracks]
+            PLAYER.queue(items, volume, dance, nas_desc)
+            more = f" ({len(items)} tracks queued)" if len(items) > 1 else ""
+            return f"queued {nas_desc}{more}, from the household library{also}. {_AFTER}"
+    if source == "nas" or not ytmusic.available():
+        if mode not in _NAS_MODES:
+            return "error: playlists and liked songs come from YouTube Music, which is not set up"
+        return f"error: {nas_desc}"
+    picks, desc = await ytmusic.search(query, mode)
+    if not picks:
+        return f"error: {desc}" if not nas_desc else f"error: {nas_desc}; and on YouTube Music: {desc}"
+    picks = picks[:config.MAX_QUEUE]
+    ytmusic.warm(picks[0]["id"])
+    items = [Item(title=f"{t['title']} by {t['artist']}" if t["artist"] else t["title"],
+                  source=ytmusic.stream_url(t["id"]), is_url=True) for t in picks]
     PLAYER.queue(items, volume, dance, desc)
     more = f" ({len(items)} tracks queued)" if len(items) > 1 else ""
-    return f"queued {desc}{more}{', and you will dance' if dance else ''}. {_AFTER}"
+    return f"queued {desc}{more}, from YouTube Music{also}. {_AFTER}"
 
 
 @tool

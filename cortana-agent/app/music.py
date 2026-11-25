@@ -15,6 +15,10 @@ starts or resumes the music once the conversation is over (as Vector does):
 
 Matching is Vector's (vector-agent/app/library.py): the library is laid out
 <Artist>/<Album>/<track>, and every query word must match.
+
+What the NAS doesn't have comes from YouTube Music (agent_core/ytmusic.py): those tracks
+are queued as http addresses on this agent, which MPD plays like any other stream, with
+the title and artist attached as tags since a stream carries none.
 """
 import asyncio
 import contextlib
@@ -30,6 +34,7 @@ from langchain_core.tools import tool
 from pydantic import Field
 
 from . import config
+from agent_core import ytmusic
 
 log = logging.getLogger("cortana-agent")
 AUDIO_EXT = {".mp3", ".flac", ".m4a", ".ogg", ".opus", ".wav", ".aac", ".wma"}
@@ -279,25 +284,62 @@ _AFTER = ("It starts by itself as soon as you've finished talking: say one short
           "and stop.")
 
 
-@tool
-async def play_music(
-        query: Annotated[str, Field(description="Song, artist or album words to find in the music "
-                                                "library; empty with mode=shuffle for anything")] = "",
-        mode: Literal["song", "artist", "album", "shuffle"] = "song",
-        volume: Annotated[int | None, Field(ge=5, le=100, description="Music volume 5-100; "
-                                            "leave out to keep the current one")] = None) -> str:
-    """Play music from the family's library on the NAS. Load the 'music' skill first."""
-    picks, desc = search(await library(), query, mode)
-    if not picks:
-        return f"error: {desc}"
-    cmds = ["stop", "clear", *(f"add {quote(t['path'])}" for t in picks[:200])]
+_NAS_MODES = ("song", "artist", "album", "shuffle")
+
+
+async def _queue(cmds: list[str], volume: int | None) -> None:
     if volume is not None:
         cmds.append(f"setvol {int(volume)}")
     await command(*cmds)
     PLAYER.want = True
     PLAYER._last_state = ""
-    more = f" ({min(len(picks), 200)} tracks queued)" if len(picks) > 1 else ""
-    return f"queued {desc}{more}. {_AFTER}"
+
+
+async def _queue_youtube(picks: list[dict], volume: int | None) -> None:
+    """Queue stream addresses, then name them: `addid` answers with the new song's id."""
+    ytmusic.warm(picks[0]["id"])
+    await command("stop", "clear")
+    ids = await command(*(f"addid {quote(ytmusic.stream_url(t['id']))}" for t in picks))
+    tags = []
+    for (_, song_id), t in zip(ids, picks):
+        tags.append(f"addtagid {song_id} Title {quote(t['title'])}")
+        if t["artist"]:
+            tags.append(f"addtagid {song_id} Artist {quote(t['artist'])}")
+        if t["album"]:
+            tags.append(f"addtagid {song_id} Album {quote(t['album'])}")
+    await _queue(tags, volume)
+
+
+@tool
+async def play_music(
+        query: Annotated[str, Field(description="Song, artist, album or playlist words to find; "
+                                                "empty with mode=shuffle or mode=liked")] = "",
+        mode: Literal["song", "artist", "album", "shuffle", "playlist", "liked"] = "song",
+        source: Annotated[Literal["auto", "nas", "youtube"], Field(
+            description="auto = the family's library first, YouTube Music if it isn't there; "
+                        "nas or youtube = only that one")] = "auto",
+        volume: Annotated[int | None, Field(ge=5, le=100, description="Music volume 5-100; "
+                                            "leave out to keep the current one")] = None) -> str:
+    """Play music: from the family's library on the NAS, or from YouTube Music (any song,
+    and John's playlists and liked songs). Load the 'music' skill first."""
+    youtube = ytmusic.available()
+    nas_desc = ""
+    if source != "youtube" and mode in _NAS_MODES:
+        picks, nas_desc = search(await library(), query, mode)
+        if picks:
+            await _queue(["stop", "clear", *(f"add {quote(t['path'])}" for t in picks[:200])], volume)
+            more = f" ({min(len(picks), 200)} tracks queued)" if len(picks) > 1 else ""
+            return f"queued {nas_desc}{more}, from the family library. {_AFTER}"
+    if source == "nas" or not youtube:
+        if mode not in _NAS_MODES:
+            return "error: playlists and liked songs come from YouTube Music, which is not set up"
+        return f"error: {nas_desc}"
+    picks, desc = await ytmusic.search(query, mode)
+    if not picks:
+        return f"error: {desc}" if not nas_desc else f"error: {nas_desc}; and on YouTube Music: {desc}"
+    await _queue_youtube(picks, volume)
+    more = f" ({len(picks)} tracks queued)" if len(picks) > 1 else ""
+    return f"queued {desc}{more}, from YouTube Music. {_AFTER}"
 
 
 @tool

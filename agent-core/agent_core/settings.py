@@ -123,3 +123,14 @@ def load_shared(ns: dict, *, provider_default: str = "anthropic", a2a_port: int 
         LOG_MAX_BYTES=int(e("LOG_MAX_BYTES", str(5 * 1024 * 1024))), LOG_BACKUPS=int(e("LOG_BACKUPS", "4")),
         LISTEN_HOST=e("LISTEN_HOST", "127.0.0.1"), LISTEN_PORT=int(e("LISTEN_PORT", str(listen_port))),
     )
+    # --- YouTube Music (agent_core/ytmusic.py). Players fetch tracks from this agent at
+    # YTMUSIC_STREAM_BASE. A player on another device (Cortana's satellite) cannot reach the
+    # main door on 127.0.0.1, so YTMUSIC_STREAM_PORT opens a second listener with only the
+    # stream route; 0 = serve it on the main door only.
+    stream_port = int(e("YTMUSIC_STREAM_PORT", "0"))
+    ns.update(
+        YTMUSIC_ENABLED=e("YTMUSIC_ENABLED", "1") == "1",
+        YTMUSIC_STREAM_HOST=e("YTMUSIC_STREAM_HOST", "0.0.0.0"), YTMUSIC_STREAM_PORT=stream_port,
+        YTMUSIC_STREAM_BASE=e("YTMUSIC_STREAM_BASE",
+                              f"http://127.0.0.1:{stream_port or ns['LISTEN_PORT']}").rstrip("/"),
+    )

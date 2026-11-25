@@ -31,7 +31,7 @@ SYNC_OUT="$("${RSYNC[@]}" --checksum \
     --exclude 'data/' --exclude 'agent-data/' --exclude 'vector-agent/' --exclude 'agent-core/' \
     --exclude 'vector.common.env' \
     --exclude 'cortana-data/' --exclude 'cortana-agent/' \
-    --exclude 'deploy.sh' --exclude 'README.md' \
+    --exclude 'deploy.sh' --exclude 'README.md' --exclude 'ytmusic-login.py' \
     --exclude 'intent-data/en-US.original.json' \
     "$HERE/" "$PI_HOST:$PI_DIR/")"
 echo "$SYNC_OUT"
