@@ -10,6 +10,7 @@ set -euo pipefail
 
 ZERO="${ZERO_HOST:-john@192.168.1.96}"
 KEY="${ZERO_KEY:-$HOME/.ssh/rpi_key}"
+PI="${PI_HOST:-john@192.168.1.39}"        # the Pi 5: Home Assistant and both agents
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAC="${1:-}"
 [[ -z "$MAC" || "$MAC" =~ ^([0-9A-F]{2}:){5}[0-9A-F]{2}$ ]] || { echo "bad MAC: $MAC (use upper case)"; exit 1; }
@@ -176,3 +177,45 @@ printf '%s\n' "$SCREEN" | sudo -n tee -a "$CFG" >/dev/null
 [ -n "${REBOOT:-}" ] && echo "screen: config.txt changed - reboot the Zero (sudo reboot) to apply"
 true
 REMOTE
+
+# 6. the dashboard on the screen (deploy/pizero/dashboard): cage + foot + a Textual app on tty1.
+#    The Home Assistant token comes from Cortana's settings on the Pi 5 and goes straight to
+#    /etc/cortana-dash.env (600) on the Zero: never through a file here.
+tar -C "$HERE" -czf - --exclude=__pycache__ --exclude=.pytest_cache --exclude=tests dashboard |
+    ssh -i "$KEY" "$ZERO" 'rm -rf /tmp/cortana-dash && mkdir -p /tmp/cortana-dash && tar -xzf - -C /tmp/cortana-dash'
+ssh -i "$KEY" "$PI" "sed -n 's/^HA_TOKEN=//p' ~/wire-pod/cortana.env" | ssh -i "$KEY" "$ZERO" '
+    IFS= read -r T || true
+    [ -n "$T" ] || { echo "dashboard: no HA_TOKEN in ~/wire-pod/cortana.env on the Pi 5"; exit 1; }
+    umask 077
+    printf "HA_URL=%s\nHA_TOKEN=%s\nDASH_AGENTS=%s\n" "http://192.168.1.39:8123" "$T" \
+        "cortana=http://192.168.1.39:8099/dash,vector=http://192.168.1.39:8098/dash" |
+        sudo -n tee /etc/cortana-dash.env.new >/dev/null
+    sudo -n chmod 600 /etc/cortana-dash.env.new && sudo -n mv /etc/cortana-dash.env.new /etc/cortana-dash.env'
+ssh -i "$KEY" "$ZERO" bash -s <<'DASH'
+set -euo pipefail
+dpkg -s cage foot fonts-jetbrains-mono python3-venv grim >/dev/null 2>&1 ||
+    sudo -n apt-get install -y -q --no-install-recommends cage foot fonts-jetbrains-mono python3-venv grim
+D=/opt/cortana-dash
+sudo -n mkdir -p $D && sudo -n chown john:john $D
+BEFORE="$( (cd $D && cat cortana-dash.service foot.ini cortana_dash/*.py) 2>/dev/null | md5sum || true)"
+find $D -mindepth 1 -maxdepth 1 ! -name venv ! -name cursors -exec rm -rf {} +
+cp -a /tmp/cortana-dash/dashboard/. $D/
+[ -x $D/venv/bin/python ] || python3 -m venv $D/venv
+if ! cmp -s $D/requirements.txt $D/venv/.requirements; then
+    $D/venv/bin/pip install -q --disable-pip-version-check -r $D/requirements.txt
+    cp $D/requirements.txt $D/venv/.requirements
+fi
+python3 $D/blank-cursor.py $D/cursors
+echo "d /var/lib/cortana-dash 0755 john john -" | sudo -n tee /etc/tmpfiles.d/cortana-dash.conf >/dev/null
+sudo -n systemd-tmpfiles --create /etc/tmpfiles.d/cortana-dash.conf
+sudo -n install -m 644 $D/cortana-dash.service /etc/systemd/system/cortana-dash.service
+sudo -n systemctl daemon-reload
+sudo -n systemctl disable getty@tty1.service >/dev/null 2>&1 || true
+sudo -n systemctl enable cortana-dash.service >/dev/null 2>&1
+if [ "$BEFORE" != "$(cd $D && cat cortana-dash.service foot.ini cortana_dash/*.py | md5sum)" ] ||
+   ! systemctl is-active -q cortana-dash; then
+    sudo -n systemctl restart cortana-dash.service
+fi
+sleep 6
+echo "dashboard: $(systemctl is-active cortana-dash)"
+DASH

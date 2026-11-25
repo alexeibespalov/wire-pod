@@ -39,3 +39,34 @@ library scan.
 
 Home Assistant must NOT have a Wyoming entry for this satellite: only one server can hold
 it, and it's cortana-agent now.
+
+## The screen
+
+An MHS-3.5 SPI display (480×320, ILI9486 panel, XPT2046 touch) sits on the header. `setup.sh`
+step 5 enables it in `config.txt` (`dtparam=spi=on`, `dtoverlay=piscreen,drm,speed=24000000,rotate=0`,
+between `# >>> cortana screen` markers; `LCD_ROTATE=` turns it). A config change needs a
+reboot. Don't use LCDwiki's `LCD-show` script: it is written for old Raspberry Pi OS.
+
+Step 6 installs the dashboard (`dashboard/`, designed on the "Cortana VFD Dashboard" canvas):
+`cortana-dash.service` runs cage (a one-window Wayland kiosk, `WLR_RENDERER=pixman` on the
+SPI card) on tty1 in place of the login prompt, foot inside it at 40×14 cells, and the
+Textual app (`cortana_dash`) inside foot. It runs at `Nice=10` so the wake word always
+comes first, and repaints only the rows that change (about 8% of one core).
+
+| On screen | From |
+|---|---|
+| Wi-Fi, BT speaker | `/proc/net/wireless`, `nmcli`, BlueZ via `busctl` |
+| Clock, date | the Zero |
+| Weather, lights, Reception temperature | Home Assistant REST on the Pi 5 (Cortana's `HA_TOKEN`, copied by `setup.sh` into `/etc/cortana-dash.env`, mode 600) |
+| Now playing | MPD here |
+| Beliefs | `GET /dash` on each agent: Vector `:8098`, Cortana `:8099` (read-only counts) |
+| A2A, bottom bar | the LED state (`/run/cortana-led/state`: listening) and the `cortana` channel: cortana-agent sends `think`, `tool <name>`, `skill <name>`, `done`, `a2a on` / `a2a off` |
+
+The tiles toggle `light.reception_room` and `light.living_room`. Heat boost sets the
+Reception Room Tado to 25 °C for an hour and then puts back the setpoint (and mode) it had,
+unless someone changed it meanwhile. The promise is kept in `/var/lib/cortana-dash/boost.json`,
+so a restart or reboot still ends the boost. Tap the tile again to end it early.
+
+Logs: `journalctl -t cortana-dash`. A screenshot of the screen:
+`XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 grim /tmp/shot.png`.
+Tests (no hardware): `cd dashboard && python -m pytest tests -q`.
