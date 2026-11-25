@@ -158,4 +158,21 @@ sudo -n systemctl daemon-reload
 sudo -n systemctl restart wyoming-satellite
 sleep 4
 systemctl is-active wyoming-openwakeword wyoming-satellite
+
+# 5. the MHS-3.5" SPI screen (ILI9486 panel + XPT2046 touch, lcdwiki.com/MHS-3.5inch_RPi_Display).
+#    Same pins as the stock piscreen overlay; `drm` picks the tiny/ili9486 DRM driver. Not
+#    LCDwiki's LCD-show script, which is written for old Raspberry Pi OS and breaks Trixie.
+#    The screen draws ~100 mA more: on a weak supply the Zero reboots or loses Wi-Fi.
+CFG=/boot/firmware/config.txt
+SCREEN="$(printf '%s\n' '# >>> cortana screen (deploy/pizero/setup.sh)' '[all]' 'dtparam=spi=on' \
+    "dtoverlay=piscreen,drm,speed=24000000,rotate=${LCD_ROTATE:-0}" '# <<< cortana screen')"
+if ! grep -qxF "dtoverlay=piscreen,drm,speed=24000000,rotate=${LCD_ROTATE:-0}" "$CFG"; then
+    sudo -n cp "$CFG" "$CFG.bak-$(date +%Y%m%d%H%M%S)"
+    REBOOT=1
+fi
+sudo -n sed -i -e '/^# >>> cortana screen/,/^# <<< cortana screen/d' \
+    -e '/^# MHS-3.5 SPI screen/d' -e '/^dtparam=spi=on$/d' -e '/^dtoverlay=piscreen/d' "$CFG"
+printf '%s\n' "$SCREEN" | sudo -n tee -a "$CFG" >/dev/null
+[ -n "${REBOOT:-}" ] && echo "screen: config.txt changed - reboot the Zero (sudo reboot) to apply"
+true
 REMOTE
