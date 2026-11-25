@@ -122,6 +122,8 @@ def load_shared(ns: dict, *, provider_default: str = "anthropic", a2a_port: int 
     ns.update(
         LOG_MAX_BYTES=int(e("LOG_MAX_BYTES", str(5 * 1024 * 1024))), LOG_BACKUPS=int(e("LOG_BACKUPS", "4")),
         LISTEN_HOST=e("LISTEN_HOST", "127.0.0.1"), LISTEN_PORT=int(e("LISTEN_PORT", str(listen_port))),
+        # read-only GET /dash for the satellite's screen (agent_core/dash.py); 0 = off
+        DASH_HOST=e("DASH_HOST", "0.0.0.0"), DASH_PORT=int(e("DASH_PORT", "0")),
     )
     # --- YouTube Music (agent_core/ytmusic.py). Players fetch tracks from this agent at
     # YTMUSIC_STREAM_BASE. A player on another device (Cortana's satellite) cannot reach the

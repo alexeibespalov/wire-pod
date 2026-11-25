@@ -107,3 +107,43 @@ def test_notes_are_tagged_with_who_wrote_them(monkeypatch, tmp_path):
     assert "night run" in notes.forget("bin day")
     left = notes.all_facts()
     assert len(left) == 1 and left[0].startswith(notes.FORGET_PREFIX)     # never deleted: a request for the job
+
+
+def test_dash_events_reach_listeners_and_a2a_counts_once(monkeypatch):
+    from agent_core import dash
+    got = []
+    monkeypatch.setattr(dash, "_listeners", [got.append, lambda line: 1 / 0])   # a broken listener is ignored
+    dash.emit("tool", "home_intent__HassTurnOn  ")
+    assert got == ["tool home_intent__HassTurnOn"] and dash.state["activity"] == "tool"
+    with dash.a2a_exchange():
+        with dash.a2a_exchange():          # Vector asking while Cortana asks: still one exchange
+            assert dash.state["a2a"] is True
+    assert got[1:] == ["a2a on", "a2a off"] and dash.state["a2a"] is False
+
+
+def test_peer_tool_marks_the_a2a_exchange(monkeypatch):
+    from agent_core import dash
+    got = []
+    monkeypatch.setattr(dash, "_listeners", [got.append])
+
+    async def fake_ask(url, token, text, **kw):
+        got.append("asking")
+        return "Minecraft"
+    monkeypatch.setattr(a2a, "ask", fake_ask)
+    asyncio.run(a2a.peer_tool(lambda: "voice").ainvoke({"question": "Leo's game?"}))
+    assert got == ["a2a on", "asking", "a2a off"]
+
+
+def test_dash_endpoint_reports_belief_count(monkeypatch):
+    from agent_core import dash
+    t = httpx.ASGITransport(app=dash.dash_app())
+
+    async def get():
+        async with httpx.AsyncClient(transport=t, base_url="http://dash") as c:
+            return (await c.get("/dash")).json()
+    monkeypatch.setattr(beliefs, "ENABLED", False)
+    assert asyncio.run(get())["beliefs"] is None                # no belief store: no number
+    monkeypatch.setattr(beliefs, "ENABLED", True)
+    monkeypatch.setattr(beliefs, "current", lambda: [{}, {}, {}])
+    body = asyncio.run(get())
+    assert body["beliefs"] == 3 and body["agent"] == "Cortana" and set(body) >= {"activity", "a2a"}

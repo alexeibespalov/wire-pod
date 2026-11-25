@@ -22,7 +22,7 @@ from langchain_core.messages import AIMessageChunk
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from . import config
-from agent_core import ytmusic
+from agent_core import dash, ytmusic
 from .agent import build_agent
 from .mcp_tools import load_mcp_tools
 from .speech import Sanitizer, clean
@@ -511,6 +511,11 @@ def main():
                                                      port=config.YTMUSIC_STREAM_PORT, log_level="warning")))
         log.info("YouTube Music streams on %s:%s (%s)", config.YTMUSIC_STREAM_HOST,
                  config.YTMUSIC_STREAM_PORT, "signed in" if ytmusic.signed_in() else "not signed in")
+    if config.DASH_PORT:
+        # read-only counts for the screen on Cortana's satellite
+        servers.append(uvicorn.Server(uvicorn.Config(dash.dash_app(), host=config.DASH_HOST,
+                                                     port=config.DASH_PORT, log_level="warning")))
+        log.info("dashboard counts on %s:%s/dash", config.DASH_HOST, config.DASH_PORT)
 
     async def serve_all():
         await asyncio.gather(*(s.serve() for s in servers))

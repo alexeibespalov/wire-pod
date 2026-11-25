@@ -87,6 +87,8 @@ services:
       WIREPOD_URL: http://127.0.0.1:8080
       VECTOR_SERIAL: "00609161"
       AGENT_TZ: Europe/London
+      # read-only GET /dash (belief count) for the screen on Cortana's satellite
+      DASH_PORT: "8098"
     volumes:
       - ./agent-data:/data
       # Vector SDK config + session cert (written by wire-pod) for the listen-only face watcher;
@@ -133,6 +135,8 @@ services:
       # uses his main door, so he needs no such port.
       YTMUSIC_STREAM_PORT: "8097"
       YTMUSIC_STREAM_BASE: http://192.168.1.39:8097
+      # read-only GET /dash (belief count, activity) for the screen on her satellite
+      DASH_PORT: "8099"
     volumes:
       - ./cortana-data:/data
     healthcheck:

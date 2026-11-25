@@ -23,7 +23,7 @@ from langgraph.func import entrypoint, task
 from langgraph.graph.message import add_messages
 
 from .settings import cfg as config
-from . import activity, compaction, llm as llms, skills
+from . import activity, compaction, dash, llm as llms, skills
 
 MAX_TOOL_RESULT_CHARS = 6000  # keep web results from bloating a small model's context
 
@@ -208,6 +208,7 @@ def build_agent(checkpointer, tools: list, extra_tools: list | None = None, *,
             messages = add_messages(messages, [SystemMessage(build_context())])
         hide = hidden(ch) if hidden is not None else set()
 
+        dash.emit("think")
         response = None
         t_start = time.monotonic()
         for _ in range(config.MAX_AGENT_STEPS):
@@ -231,13 +232,20 @@ def build_agent(checkpointer, tools: list, extra_tools: list | None = None, *,
             if not response.tool_calls:
                 break
             request = _request_text(messages)
+            for tc in response.tool_calls:
+                if tc["name"] == "load_skill":
+                    dash.emit("skill", (tc.get("args") or {}).get("name", ""))
+                else:
+                    dash.emit("tool", tc["name"])
             results = await asyncio.gather(*(call_tool(tc, request, names) for tc in response.tool_calls))
             messages = add_messages(messages, list(results))
+            dash.emit("think")
         else:
             # step budget exhausted mid-tool-loop: close the turn with plain text
             response = AIMessage(content=tangled)
             messages = add_messages(messages, [response])
 
+        dash.emit("done")
         if after_turn is not None:
             messages = after_turn(user_text, response, messages, ch)
         compaction.maybe_compact(thread, messages, llm)   # background, after the turn

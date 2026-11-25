@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 from langchain_core.tools import StructuredTool
 
 from .settings import cfg as config
+from . import dash
 
 log = logging.getLogger(config.LOGGER_NAME)
 _CUE = re.compile(r"\{\{.*?\}\}")
@@ -73,7 +74,8 @@ def build_app(card, run_turn: Callable[[str, str], Awaitable[str]], *, token: st
             thread = f"a2a-{context_id}"
             log.info("[%s] a2a user: %s", thread, text)
             try:
-                reply = _CUE.sub("", str(await run_turn(text, thread) or "")).strip() or "(no reply)"
+                with dash.a2a_exchange():
+                    reply = _CUE.sub("", str(await run_turn(text, thread) or "")).strip() or "(no reply)"
             except Exception as e:
                 log.exception("a2a turn failed")
                 reply = f"Sorry, my brain glitched: {type(e).__name__}"
@@ -165,8 +167,9 @@ def peer_tool(channel: Callable[[], str]):
         if channel() == "a2a":
             return f"error: you can't ask {peer} while you are answering another agent"
         try:
-            reply = await ask(url, token, f"This is {me}, the family's other assistant. {question}",
-                              timeout=config.PEER_TIMEOUT_S, context_id=ctx())
+            with dash.a2a_exchange():
+                reply = await ask(url, token, f"This is {me}, the family's other assistant. {question}",
+                                  timeout=config.PEER_TIMEOUT_S, context_id=ctx())
         except (httpx.TimeoutException, TimeoutError):
             return f"{peer} didn't answer in time (probably busy talking). Carry on without it and say so."
         except Exception as e:
