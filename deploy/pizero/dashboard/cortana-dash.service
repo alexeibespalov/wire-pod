@@ -1,5 +1,6 @@
 # Written by deploy/pizero/setup.sh (Cortana): the dashboard on the 3.5" SPI screen.
 # cage (a one-window Wayland kiosk) on tty1, drawing with pixman onto the ili9486 panel;
+# -d: no title bar on foot (it cost the screen its 15th row);
 # foot inside it; the Textual app inside foot. Taps on the touch panel reach the app as clicks.
 [Unit]
 Description=Cortana's screen (VFD dashboard on the SPI panel)
@@ -27,7 +28,7 @@ Environment=XCURSOR_THEME=blank
 Environment=PYTHONPATH=/opt/cortana-dash
 Environment=PYTHONDONTWRITEBYTECODE=1
 WorkingDirectory=/opt/cortana-dash
-ExecStart=/usr/bin/cage -s -- /usr/bin/foot -c /opt/cortana-dash/foot.ini /opt/cortana-dash/venv/bin/python -m cortana_dash
+ExecStart=/usr/bin/cage -d -s -- /usr/bin/foot -c /opt/cortana-dash/foot.ini /opt/cortana-dash/venv/bin/python -m cortana_dash
 Restart=always
 RestartSec=3
 # the wake word comes first: the screen gets what's left

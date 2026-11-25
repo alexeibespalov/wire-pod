@@ -23,7 +23,7 @@ from .render import BG, H, W, Frame, Palette, State, render, tile_at
 
 log = logging.getLogger("cortana-dash")
 
-FPS = 8
+FPS = 12
 FLASH_S = 2.0
 ENTITIES = {
     "reception": os.environ.get("DASH_RECEPTION_LIGHTS", "light.reception_room"),

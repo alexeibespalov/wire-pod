@@ -1,4 +1,4 @@
-"""Draw one frame of the dashboard: the state in, a 40x14 grid of cells out.
+"""Draw one frame of the dashboard: the state in, a 40x15 grid of cells out.
 
 Pure (no I/O): `render(state, wall, t)` takes the wall clock for the time shown and a
 monotonic `t` for the animations, so tests can freeze both. The layout follows the
@@ -11,13 +11,14 @@ approved design (the "Cortana VFD Dashboard" canvas):
     rows 7-12   four tiles: Reception lights, Reception temp / Living Room lights, Heat boost
     row 13      Cortana's bar: dark; grows out from the centre and pulses while listening;
                 THINKING / TOOL CALL: x / SKILL CALL: y
+    row 14      what she's saying, scrolling right to left
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
 
-W, H = 40, 14
+W, H = 40, 15
 Rgb = tuple[int, int, int]
 
 
@@ -69,6 +70,8 @@ class State:
     agent: str = "idle"                        # idle / listening / thinking / tool / skill
     agent_detail: str = ""
     agent_since: float = 0.0                   # monotonic
+    speech: str = ""                           # what she's saying, as it scrolls past
+    speech_since: float = 0.0                  # monotonic: when this run of speech started
     lights: dict = field(default_factory=dict)  # "reception"/"living" -> {on, pct}
     climate: dict | None = None                # current, setpoint, action, mode
     boost_until: float | None = None           # wall clock
@@ -335,6 +338,39 @@ def draw_tiles(f: Frame, s: State, wall: float, t: float) -> None:
 
 
 GROW_S, PULSE_S = 0.5, 1.6
+BAR_ROW, SPEECH_ROW = 13, 14
+SPEECH_CPS = 10.0          # how fast her words scroll past, in characters a second
+SPEECH_GAP = "   ·   "     # between two sentences
+
+
+def speech_offset(s: State, t: float) -> int | None:
+    """How far the speech has scrolled, or None once it has all gone past."""
+    if not s.speech:
+        return None
+    off = int((t - s.speech_since) * SPEECH_CPS)
+    return off if off < W + len(s.speech) else None
+
+
+def add_speech(s: State, sentence: str, t: float) -> None:
+    """A new sentence joins the end of the one scrolling, or starts a new run."""
+    sentence = " ".join(sentence.split())
+    if not sentence:
+        return
+    if speech_offset(s, t) is None:
+        s.speech, s.speech_since = sentence, t
+    else:
+        s.speech += SPEECH_GAP + sentence
+
+
+def draw_speech(f: Frame, s: State, t: float) -> None:
+    p = f.pal
+    off = speech_offset(s, t)
+    if off is None:
+        return
+    window = (" " * W + s.speech + " " * W)[off:off + W]
+    for x, ch in enumerate(window):
+        edge = x < 2 or x >= W - 2                    # the ends dim, like text sliding behind glass
+        f.put(x, SPEECH_ROW, ch, p.mid if edge else p.lit)
 
 
 def pretty_tool(name: str) -> str:
@@ -344,7 +380,7 @@ def pretty_tool(name: str) -> str:
 
 def draw_bar(f: Frame, s: State, t: float) -> None:
     p = f.pal
-    y = H - 1
+    y = BAR_ROW
     age = t - s.agent_since
     a = s.agent
     fill = [p.ghost] * W
@@ -384,10 +420,11 @@ def render(s: State, wall: float, t: float, pal: Palette | None = None) -> Frame
     lt = _time.localtime(wall)
     draw_status(f, s)
     draw_clock(f, _time.strftime("%H%M", lt), 1, 1, t, dark=False)
-    f.put(22, 1, f"{DAYS[lt.tm_wday]} {lt.tm_mday} {MONTHS[lt.tm_mon - 1]} {lt.tm_year}", f.pal.lit)
+    f.put_right(38, 1, f"{DAYS[lt.tm_wday]} {lt.tm_mday} {MONTHS[lt.tm_mon - 1]} {lt.tm_year}", f.pal.lit)
     draw_weather(f, s.weather, 22, 2, t)
     draw_playing(f, s, wall, t)
     draw_beliefs(f, s)
     draw_tiles(f, s, wall, t)
     draw_bar(f, s, t)
+    draw_speech(f, s, t)
     return f

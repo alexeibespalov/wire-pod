@@ -3,7 +3,8 @@ goes dim ("--") and the rest carries on.
 
     Home Assistant  REST on the Pi 5: the two light groups, the thermostat, the weather
     MPD             on this Zero: what's playing, and the `cortana` channel, where
-                    cortana-agent sends think / tool <name> / skill <name> / done / a2a on|off
+                    cortana-agent sends think / tool <name> / skill <name> / done / a2a on|off,
+                    and say <sentence> as she starts saying each sentence
     cortana-led     /run/cortana-led/state, written by the satellite's hooks: listen / think / off
     Wi-Fi           /proc/net/wireless (signal) and nmcli (network name)
     Bluetooth       BlueZ over busctl: is the speaker connected, and its name
@@ -20,7 +21,7 @@ from typing import Callable
 
 import httpx
 
-from .render import State
+from .render import State, add_speech
 
 log = logging.getLogger("cortana-dash")
 
@@ -110,7 +111,9 @@ def on_message(s: State, text: str, now: float | None = None) -> None:
         set_agent(s, "idle", now=now)
     elif word == "a2a":
         s.a2a = rest == "on"
-    # say / busy / quiet are for the Echo's screen (cortana-nowplaying): nothing here
+    elif word == "say":
+        add_speech(s, rest, time.monotonic() if now is None else now)
+    # busy / quiet are for the Echo's screen (cortana-nowplaying): nothing here
 
 
 def on_led(s: State, before: str, after: str, now: float | None = None) -> None:

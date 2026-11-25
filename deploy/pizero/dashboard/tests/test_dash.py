@@ -26,12 +26,12 @@ def full_state() -> R.State:
 
 
 # --------------------------------------------------------------------------- drawing
-def test_everything_fits_the_40_by_14_grid():
+def test_everything_fits_the_40_by_15_grid():
     f = R.render(full_state(), WALL, 0.0)
     rows = f.text().split("\n")
-    assert len(rows) == 14 and all(len(r) == 40 for r in rows)
+    assert len(rows) == 15 and all(len(r) == 40 for r in rows)
     assert "▂▄▆█ HOMENET" in rows[0] and rows[0].rstrip().endswith("BT ECHO SHOW 8-6KX")
-    assert "WED 25 NOV 2026" in rows[1]
+    assert rows[1].endswith("WED 25 NOV 2026 ")              # right-justified, away from the clock
     assert " 4.7°C" in rows[2] and "CLOUDY" in rows[3] and "RH 84%" in rows[4]
     assert "▶ CLAIR DE LUNE · DEBUSSY" in rows[5] and rows[5].rstrip().endswith("2:41")
     assert rows[6].startswith(" BELIEFS CORTANA: 87 VECTOR: 214") and rows[6].endswith("│ A2A  ")
@@ -39,6 +39,7 @@ def test_everything_fits_the_40_by_14_grid():
     assert "━━━●  ON 30%" in rows[8] and "19.5° SET 21.5° ≋" in rows[8]
     assert "●━━━  OFF" in rows[11] and "▲ 25° FOR 1 HOUR" in rows[11]
     assert rows[13].strip() == "CORTANA"
+    assert rows[14].strip() == ""                              # nobody speaking
 
 
 def test_offline_goes_dim_not_blank():
@@ -96,6 +97,21 @@ def test_boost_tile_counts_down():
 def test_taps_land_on_the_right_tile():
     assert R.tile_at(5, 8) == 0 and R.tile_at(25, 7) == 1 and R.tile_at(0, 12) == 2 and R.tile_at(39, 10) == 3
     assert R.tile_at(5, 6) is None and R.tile_at(5, 13) is None
+
+
+def test_her_words_scroll_in_from_the_right_and_queue_up():
+    s = full_state()
+    S.on_message(s, "say It's 5 degrees and cloudy.", now=100.0)
+    assert R.render(s, WALL, 100.0).row_text(14).strip() == ""          # not in yet
+    row = R.render(s, WALL, 101.0).row_text(14)                         # 10 characters in
+    assert row.endswith("It's 5 deg") and row.startswith(" " * 30)
+    S.on_message(s, "say Bring a coat.", now=102.0)                     # joins the queue
+    assert s.speech == "It's 5 degrees and cloudy.   ·   Bring a coat."
+    gone = 100.0 + (40 + len(s.speech)) / R.SPEECH_CPS
+    assert "Bring a coat." in R.render(s, WALL, gone - 3.0).row_text(14)
+    assert R.render(s, WALL, gone + 0.1).row_text(14).strip() == ""     # all gone past
+    S.on_message(s, "say Anything else?", now=gone + 1)                 # a new run starts afresh
+    assert s.speech == "Anything else?" and s.speech_since == gone + 1
 
 
 # --------------------------------------------------------------------------- the activity
@@ -240,7 +256,7 @@ def test_app_draws_and_taps_call_home_assistant(tmp_path):
     async def go():
         app = Dashboard(ha, boost, live=False)
         app.state = full_state()
-        async with app.run_test(size=(40, 14)) as pilot:
+        async with app.run_test(size=(40, 15)) as pilot:
             await pilot.pause()
             await pilot.click(offset=(5, 8))           # Reception lights
             await pilot.click(offset=(25, 8))          # the temperature only shows
