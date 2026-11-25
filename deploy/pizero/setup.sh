@@ -175,6 +175,17 @@ sudo -n sed -i -e '/^# >>> cortana screen/,/^# <<< cortana screen/d' \
     -e '/^# MHS-3.5 SPI screen/d' -e '/^dtparam=spi=on$/d' -e '/^dtoverlay=piscreen/d' "$CFG"
 printf '%s\n' "$SCREEN" | sudo -n tee -a "$CFG" >/dev/null
 [ -n "${REBOOT:-}" ] && echo "screen: config.txt changed - reboot the Zero (sudo reboot) to apply"
+# Touch: with rotate=0 the panel's up-down axis comes out upside down (taps on the bottom row of
+# tiles landed 4 rows from the top). libinput flips it back: no reboot, cage rereads it on start.
+RULE=/etc/udev/rules.d/99-cortana-touch.rules
+WANT='ACTION=="add|change", KERNEL=="event*", ATTRS{name}=="ADS7846 Touchscreen", ENV{LIBINPUT_CALIBRATION_MATRIX}="1 0 0 0 -1 1"'
+if [ "$(cat $RULE 2>/dev/null)" != "$WANT" ]; then
+    echo "$WANT" | sudo -n tee $RULE >/dev/null
+    sudo -n udevadm control --reload
+    sudo -n udevadm trigger --action=change --subsystem-match=input --sysname-match="event*"; sudo -n udevadm settle
+    sudo -n systemctl try-restart cortana-dash
+    echo "touch: calibration updated"
+fi
 true
 REMOTE
 
